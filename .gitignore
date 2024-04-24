@@ -1,0 +1,5 @@
+/target
+/test-roms
+.vscode
+log.txt
+.DS_Store
