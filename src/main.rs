@@ -1,62 +1,118 @@
+mod cartridge;
 mod cpu;
+mod gpu;
 mod interrupts;
+mod joypad;
 mod mmu;
-mod ppu;
 mod timer;
+mod utils;
+
+use crate::cartridge::Cartridge;
+use crate::mmu::Memory;
 
 use std::io::Read;
 use std::thread::sleep;
 use std::{fs::File, time::Duration, time::Instant};
 
-use minifb::{Key, Window, WindowOptions};
+use joypad::{Joypad, Key};
 
-const WIDTH: usize = 160;
-const HEIGHT: usize = 144;
+use sdl2::event::Event;
+use sdl2::keyboard::Keycode;
+use sdl2::pixels::Color;
+use sdl2::rect::Rect;
+use sdl2::render::Canvas;
+use sdl2::video::Window;
 
-// use cpu::CPU;
+const SCALE: u32 = 5;
+const SCREEN_WIDTH: u32 = 160;
+const SCREEN_HEIGHT: u32 = 144;
+const WINDOW_WIDTH: u32 = SCREEN_WIDTH * SCALE;
+const WINDOW_HEIGHT: u32 = SCREEN_HEIGHT * SCALE;
+
+use cpu::CPU;
 
 fn main() {
     File::create("log.txt").expect("failed to create log file");
 
-    // // Test ROMs
-    // // 01-special - PASS
-    // // 02-interrupts - EI Failed #2
-    // // 03-op sp,hl - PASS
-    // // 04-op r,imm - PASS
-    // // 05-op rp - PASS
-    // // 06-ld r,r - PASS
-    // // 07-jr,jp,call,ret,rst - PASS
-    // // 08-misc instrs - PASS
-    // // 09-op r,r - PASS
-    // // 10-bit ops - PASS
-    // // 11-op a,(hl) - PASS
-
-    let mut rom = File::open("./test-roms/01-special.gb").expect("failed to open file");
+    let mut rom = File::open("./test-roms/Tetris.gb").expect("failed to open file");
     let mut contents = Vec::new();
     rom.read_to_end(&mut contents).unwrap();
 
-    let mut cpu = cpu::CPU::new();
-    cpu.load(contents);
+    let cartridge = cartridge::new_cartridge(contents.clone());
+    let mmu = Memory::new(cartridge);
+    let mut cpu = cpu::CPU::new(mmu);
 
-    let screen_buffer = cpu.mem.ppu.screen_buffer;
+    sdl2(&mut cpu);
+}
 
-    let mut window = Window::new(
-        "Test - ESC to exit",
-        WIDTH,
-        HEIGHT,
-        WindowOptions::default(),
-    )
-    .unwrap_or_else(|e| {
-        panic!("{}", e);
-    });
+fn sdl2(cpu: &mut CPU) {
+    // Initialize SDL2
+    let sdl_context = sdl2::init().unwrap();
+    let video_subsystem = sdl_context.video().unwrap();
 
-    // Limit to max ~60 fps update rate
-    window.limit_update_rate(Some(std::time::Duration::from_micros(16600)));
+    // Create a window
+    let window = video_subsystem
+        .window(
+            "Gameboy Emulator",
+            WINDOW_WIDTH as u32,
+            WINDOW_HEIGHT as u32,
+        )
+        .position_centered()
+        .build()
+        .unwrap();
 
-    let mut buffer = [0; 23040];
+    let mut canvas = window.into_canvas().build().unwrap();
+
+    // Create a texture to render to
+    let texture_creator = canvas.texture_creator();
+    let mut texture = texture_creator
+        .create_texture(
+            sdl2::pixels::PixelFormatEnum::RGBA32,
+            sdl2::render::TextureAccess::Streaming,
+            SCREEN_WIDTH as u32,
+            SCREEN_HEIGHT as u32,
+        )
+        .unwrap();
+
+    // Wait for a quit event
     let mut cycles_elapsed_in_frame = 0usize;
     let mut now = Instant::now();
-    while window.is_open() && !window.is_key_down(Key::Escape) {
+    let mut event_pump = sdl_context.event_pump().unwrap();
+    'running: loop {
+        for event in event_pump.poll_iter() {
+            match event {
+                sdl2::event::Event::Quit { .. } => break 'running,
+                Event::KeyDown {
+                    keycode: Some(keycode),
+                    ..
+                } => match keycode {
+                    Keycode::Up => cpu.mem.joypad.push_button(Key::Up),
+                    Keycode::Down => cpu.mem.joypad.push_button(Key::Down),
+                    Keycode::Left => cpu.mem.joypad.push_button(Key::Left),
+                    Keycode::Right => cpu.mem.joypad.push_button(Key::Right),
+                    Keycode::Z => cpu.mem.joypad.push_button(Key::A),
+                    Keycode::X => cpu.mem.joypad.push_button(Key::B),
+                    Keycode::Return => cpu.mem.joypad.push_button(Key::Start),
+                    Keycode::RShift => cpu.mem.joypad.push_button(Key::Select),
+                    _ => {}
+                },
+                Event::KeyUp {
+                    keycode: Some(keycode),
+                    ..
+                } => match keycode {
+                    Keycode::Up => cpu.mem.joypad.release_button(Key::Up),
+                    Keycode::Down => cpu.mem.joypad.release_button(Key::Down),
+                    Keycode::Left => cpu.mem.joypad.release_button(Key::Left),
+                    Keycode::Right => cpu.mem.joypad.release_button(Key::Right),
+                    Keycode::Z => cpu.mem.joypad.release_button(Key::A),
+                    Keycode::X => cpu.mem.joypad.release_button(Key::B),
+                    Keycode::Return => cpu.mem.joypad.release_button(Key::Start),
+                    Keycode::RShift => cpu.mem.joypad.release_button(Key::Select),
+                    _ => {}
+                },
+                _ => {}
+            }
+        }
         let time_delta = now.elapsed().subsec_nanos();
         now = Instant::now();
         let delta = time_delta as f64 / 1_000_000_000 as f64;
@@ -67,18 +123,25 @@ fn main() {
         }
         cycles_elapsed_in_frame += cycles_elapsed;
         if cycles_elapsed_in_frame >= 70224 {
-            for (i, pixel) in screen_buffer.chunks(4).enumerate() {
-                buffer[i] = (pixel[3] as u32) << 24
-                    | (pixel[2] as u32) << 16
-                    | (pixel[1] as u32) << 8
-                    | (pixel[0] as u32)
-            }
-            window.update_with_buffer(&buffer, WIDTH, HEIGHT).unwrap();
+            texture
+                .update(
+                    None,
+                    &cpu.mem.gpu.canvas_buffer,
+                    (SCREEN_WIDTH * 4) as usize,
+                )
+                .unwrap();
+            canvas.clear();
+            canvas
+                .copy(
+                    &texture,
+                    None,
+                    Some(Rect::new(0, 0, WINDOW_WIDTH as u32, WINDOW_HEIGHT as u32)),
+                )
+                .unwrap();
+            canvas.present();
             cycles_elapsed_in_frame = 0;
         } else {
             sleep(Duration::from_nanos(2));
         }
-
-        // We unwrap here as we want this code to exit if it fails. Real applications may want to handle this in a different way
     }
 }

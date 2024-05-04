@@ -16,10 +16,10 @@ const CARRY_FLAG_BYTE_POSITION: u8 = 4;
 impl FlagsRegister {
     pub fn new() -> FlagsRegister {
         FlagsRegister {
-            z: false,
+            z: true,
             n: false,
-            h: false,
-            c: false,
+            h: true,
+            c: true,
         }
     }
 }
