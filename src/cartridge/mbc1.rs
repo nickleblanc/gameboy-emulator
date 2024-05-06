@@ -31,7 +31,15 @@ impl CartridgeType for MBC1 {
                 let value = if value == 0 { 1 } else { value };
                 self.cartridge.rom_bank = (self.cartridge.rom_bank & 0xE0) | (value & 0x1F);
             }
-            0x4000..=0x5FFF => {}
+            0x4000..=0x5FFF => match self.cartridge.mode {
+                0 => {
+                    self.cartridge.rom_bank = (self.cartridge.rom_bank) | ((value & 0x03) << 5);
+                }
+                1 => {
+                    self.cartridge.ram_bank = value;
+                }
+                _ => {}
+            },
             0x6000..=0x7FFF => {
                 self.cartridge.mode = value & 0x01;
             }

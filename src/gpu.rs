@@ -2,6 +2,9 @@ use std;
 
 use super::mmu::{OAM_SIZE, VRAM_BEGIN, VRAM_SIZE};
 
+const TILESET_FIRST_BEGIN_ADDRESS: u16 = 0x8000;
+const TILESET_SECOND_BEGIN_ADDRESS: u16 = 0x9000;
+
 const NUMBER_OF_OBJECTS: usize = 40;
 #[cfg_attr(feature = "serialize", derive(Serialize))]
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -216,7 +219,7 @@ pub struct GPU {
     pub window: Window,
     pub line: u8,
     pub mode: Mode,
-    cycles: u16,
+    pub cycles: u16,
 }
 
 impl GPU {
@@ -361,10 +364,10 @@ impl GPU {
 
                     if self.line >= 144 {
                         self.mode = Mode::VerticalBlank;
-                        request.add(InterruptRequest::VBlank);
                         if self.vblank_interrupt_enabled {
                             request.add(InterruptRequest::LCDStat)
                         }
+                        request.add(InterruptRequest::VBlank);
                     } else {
                         self.mode = Mode::OAMAccess;
                         if self.oam_interrupt_enabled {
@@ -417,68 +420,91 @@ impl GPU {
     }
 
     fn render_scan_line(&mut self) {
-        let mut scan_line: [TilePixelValue; SCREEN_WIDTH] = [Default::default(); SCREEN_WIDTH];
         if self.background_display_enabled {
-            // The x index of the current tile
-            let mut tile_x_index = self.viewport_x_offset / 8;
+            self.render_background_line();
+        }
+
+        if self.object_display_enabled {
+            self.render_object_line();
+        }
+    }
+
+    fn render_background_line(&mut self) {
+        if self.background_display_enabled {
+            // let mut pixel_index = self.viewport_x_offset % 8;
+
+            // let mut tile_x_index = self.viewport_x_offset / 8;
             // The current scan line's y-offset in the entire background space is a combination
             // of both the line inside the view port we're currently on and the amount of the view port is scrolled
             let tile_y_index = self.line.wrapping_add(self.viewport_y_offset);
             // The current tile we're on is equal to the total y offset broken up into 8 pixel chunks
             // and multipled by the width of the entire background (i.e. 32 tiles)
-            let tile_offset = (tile_y_index as u16 / 8) * 32u16;
 
-            // Where is our tile map defined?
-            let background_tile_map = if self.background_tile_map == TileMap::X9800 {
-                0x9800
-            } else {
-                0x9C00
-            };
             // Munge this so that the beginning of VRAM is index 0
-            let tile_map_begin = background_tile_map - VRAM_BEGIN;
+
             // Where we are in the tile map is the beginning of the tile map
             // plus the current tile's offset
-            let tile_map_offset = tile_map_begin + tile_offset as usize;
 
-            // When line and scrollY are zero we just start at the top of the tile
-            // If they're non-zero we must index into the tile cycling through 0 - 7
             let row_y_offset = tile_y_index % 8;
-            let mut pixel_x_index = self.viewport_x_offset % 8;
 
-            if self.background_and_window_data_select == BackgroundAndWindowDataSelect::X8800 {
-                panic!("TODO: support 0x8800 background and window data select");
-            }
+            for x in 0..SCREEN_WIDTH {
+                let tile_x_index = x.wrapping_add(self.viewport_x_offset as usize);
 
-            let mut canvas_buffer_offset = self.line as usize * SCREEN_WIDTH * 4;
-            // Start at the beginning of the line and go pixel by pixel
-            for line_x in 0..SCREEN_WIDTH {
-                // Grab the tile index specified in the tile map
-                let tile_index = self.vram[tile_map_offset + tile_x_index as usize];
+                let background_tile_map = if self.background_tile_map == TileMap::X9800 {
+                    0x9800
+                } else {
+                    0x9C00
+                };
 
-                let tile_value = self.tile_set[tile_index as usize][row_y_offset as usize]
-                    [pixel_x_index as usize];
+                let tile_map_begin = background_tile_map - VRAM_BEGIN;
+
+                let tile_offset = (tile_y_index as u16 / 8) * 32u16;
+
+                let tile_address =
+                    tile_map_begin + tile_offset as usize + (tile_x_index / 8) as usize;
+                let tile_map_offset = tile_map_begin + tile_offset as usize;
+
+                let tile_num = self.vram[tile_address as usize];
+
+                let tile_begin_address = self.calculate_tile_address(tile_num) - VRAM_BEGIN as u16;
+
+                // let tile_index = self.vram[tile_begin_address as usize];
+                let tile_index = self.vram[tile_address];
+
+                let tile = (self.calculate_tile_address(tile_index) - VRAM_BEGIN as u16) / 16;
+
+                let pixel_index = self.viewport_x_offset.wrapping_add(x as u8) % 8;
+
+                let tile_value =
+                    self.tile_set[tile as usize][row_y_offset as usize][pixel_index as usize];
                 let color = self.tile_value_to_background_color(&tile_value);
+
+                let canvas_buffer_offset = (x * 4) + (self.line as usize * SCREEN_WIDTH * 4);
 
                 self.canvas_buffer[canvas_buffer_offset] = color as u8;
                 self.canvas_buffer[canvas_buffer_offset + 1] = color as u8;
                 self.canvas_buffer[canvas_buffer_offset + 2] = color as u8;
                 self.canvas_buffer[canvas_buffer_offset + 3] = 255;
-                canvas_buffer_offset += 4;
-                scan_line[line_x] = tile_value;
-                // Loop through the 8 pixels within the tile
-                pixel_x_index = (pixel_x_index + 1) % 8;
-
-                // Check if we've fully looped through the tile
-                if pixel_x_index == 0 {
-                    // Now increase the tile x_offset by 1
-                    tile_x_index = tile_x_index + 1;
-                }
-                if self.background_and_window_data_select == BackgroundAndWindowDataSelect::X8800 {
-                    panic!("TODO: support 0x8800 background and window data select");
-                }
             }
         }
+    }
 
+    fn calculate_tile_address(&self, tile_number: u8) -> u16 {
+        //Use first tileset, tile_number interpreted as unsigned
+        // println!("tile_number: {}", tile_number);
+        // println!(
+        //     "background_and_window_data_select: {:?}",
+        //     self.background_and_window_data_select
+        // );
+        if self.background_and_window_data_select == BackgroundAndWindowDataSelect::X8000 {
+            return TILESET_FIRST_BEGIN_ADDRESS + tile_number as u16 * 16;
+        }
+        //Use second tileset, tile_number interpreted as signed
+        TILESET_SECOND_BEGIN_ADDRESS.wrapping_add(((tile_number as i8) as u16).wrapping_mul(16))
+    }
+
+    fn render_object_line(&mut self) {
+        let mut scan_line: [TilePixelValue; SCREEN_WIDTH] = [Default::default(); SCREEN_WIDTH];
         if self.object_display_enabled {
             let object_height = if self.object_size == ObjectSize::OS8X16 {
                 16
@@ -523,7 +549,7 @@ impl GPU {
                             self.canvas_buffer[canvas_offset + 2] = color as u8;
                             self.canvas_buffer[canvas_offset + 3] = 255;
                         }
-                        canvas_offset += 4;
+                        canvas_offset = canvas_offset.wrapping_add(4);
                     }
                 }
             }

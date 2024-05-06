@@ -1,6 +1,8 @@
+use sdl2::keyboard::Mod;
+
 use super::interrupts::InterruptFlags;
 // use super::gpu::{Interrupt, PPU};
-use super::gpu::{BackgroundAndWindowDataSelect, InterruptRequest, ObjectSize, TileMap, GPU};
+use super::gpu::{BackgroundAndWindowDataSelect, InterruptRequest, Mode, ObjectSize, TileMap, GPU};
 use super::timer::{Frequency, Timer};
 use crate::cartridge::CartridgeType;
 use crate::joypad::Joypad;
@@ -56,7 +58,7 @@ const LCD_STAT: usize = 0xFF41;
 const INTERRUPT_ENABLE: usize = 0xFFFF;
 
 pub struct Memory {
-    mem: [u8; 0xFFFF],
+    // mem: [u8; 0xFFFF],
     external_ram: [u8; EXTERNAL_RAM_SIZE],
     wram: [u8; WORKING_RAM_SIZE],
     hram: [u8; HIGH_RAM_SIZE],
@@ -74,7 +76,7 @@ impl Memory {
         let mut divider = Timer::new(Frequency::F16384);
         divider.enabled = true;
         Memory {
-            mem: [0; 0xFFFF],
+            // mem: [0; 0xFFFF],
             external_ram: [0; EXTERNAL_RAM_SIZE],
             wram: [0; WORKING_RAM_SIZE],
             hram: [0; HIGH_RAM_SIZE],
@@ -123,9 +125,7 @@ impl Memory {
             ROM_BANK_0_BEGIN..=ROM_BANK_0_END => self.cartridge.read(address as u16),
             ROM_BANK_N_BEGIN..=ROM_BANK_N_END => self.cartridge.read(address as u16),
             VRAM_BEGIN..=VRAM_END => self.gpu.vram[address - VRAM_BEGIN],
-            EXTERNAL_RAM_BEGIN..=EXTERNAL_RAM_END => {
-                self.external_ram[address - EXTERNAL_RAM_BEGIN]
-            }
+            EXTERNAL_RAM_BEGIN..=EXTERNAL_RAM_END => self.cartridge.read_ram(address as u16),
             WORKING_RAM_BEGIN..=WORKING_RAM_END => self.wram[address - WORKING_RAM_BEGIN],
             ECHO_RAM_BEGIN..=ECHO_RAM_END => self.wram[address - ECHO_RAM_BEGIN],
             OAM_BEGIN..=OAM_END => self.gpu.oam[address - OAM_BEGIN],
@@ -143,12 +143,15 @@ impl Memory {
             ROM_BANK_0_BEGIN..=ROM_BANK_0_END => {
                 self.cartridge.write(address as u16, value);
             }
+            ROM_BANK_N_BEGIN..=ROM_BANK_N_END => {
+                self.cartridge.write(address as u16, value);
+            }
             VRAM_BEGIN..=VRAM_END => {
                 self.gpu
                     .write_vram(address as usize - VRAM_BEGIN as usize, value);
             }
             EXTERNAL_RAM_BEGIN..=EXTERNAL_RAM_END => {
-                self.external_ram[address - EXTERNAL_RAM_BEGIN] = value;
+                self.cartridge.write_ram(address as u16, value);
             }
             WORKING_RAM_BEGIN..=WORKING_RAM_END => {
                 self.wram[address - WORKING_RAM_BEGIN] = value;
@@ -156,6 +159,7 @@ impl Memory {
             OAM_BEGIN..=OAM_END => {
                 self.gpu.write_oam(address - OAM_BEGIN, value);
             }
+            UNUSED_BEGIN..=UNUSED_END => {}
             IO_REGISTERS_BEGIN..=IO_REGISTERS_END => self.write_io(address, value),
             HIGH_RAM_BEGIN..=HIGH_RAM_END => {
                 self.hram[address - HIGH_RAM_BEGIN] = value;
@@ -169,7 +173,7 @@ impl Memory {
                 // );
             }
             _ => {
-                // panic!("Memory write not implemented: {:#06x}", address)
+                panic!("Memory write not implemented: {:#06x}", address)
             }
         }
     }
@@ -178,8 +182,8 @@ impl Memory {
         match address {
             0xFF00 => self.joypad.read_input(),
             // 0xFF00 => 0xCF,
-            0xFF01 => self.mem[address],
-            0xFF02 => self.mem[address],
+            // 0xFF01 => self.mem[address],
+            // 0xFF02 => self.mem[address],
             DIVIDER => self.divider.counter,
             INTERRUPT_FLAG => self.interrupt_flags.to_byte(),
             0xFF40 => {
@@ -217,8 +221,8 @@ impl Memory {
     fn write_io(&mut self, address: usize, value: u8) {
         match address {
             0xFF00 => self.joypad.write(value),
-            0xFF01 => self.mem[address] = value,
-            0xFF02 => self.mem[address] = value,
+            // 0xFF01 => self.mem[address] = value,
+            // 0xFF02 => self.mem[address] = value,
             DIVIDER => {
                 self.divider.counter = 0;
             }
@@ -266,6 +270,12 @@ impl Memory {
                 };
                 self.gpu.object_display_enabled = ((value >> 1) & 0b1) == 1;
                 self.gpu.background_display_enabled = (value & 0b1) == 1;
+
+                if !self.gpu.lcd_display_enabled {
+                    // self.gpu.line = 0;
+                    self.gpu.mode = Mode::HorizontalBlank;
+                    // self.gpu.cycles = 0;
+                }
             }
             LCD_STAT => {
                 // LCD Controller Status

@@ -34,7 +34,8 @@ use cpu::CPU;
 fn main() {
     File::create("log.txt").expect("failed to create log file");
 
-    let mut rom = File::open("./test-roms/Tetris.gb").expect("failed to open file");
+    let mut rom =
+        File::open("./test-roms/Dr. Mario (World) (Rev 1).gb").expect("failed to open file");
     let mut contents = Vec::new();
     rom.read_to_end(&mut contents).unwrap();
 
