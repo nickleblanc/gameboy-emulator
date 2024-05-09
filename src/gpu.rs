@@ -458,10 +458,10 @@ impl GPU {
 
                 let tile_map_begin = background_tile_map - VRAM_BEGIN;
 
-                let tile_offset = (tile_y_index as u16 / 8) * 32u16;
+                let tile_offset = (tile_y_index as u16 / 8) * 32;
 
                 let tile_address =
-                    tile_map_begin + tile_offset as usize + (tile_x_index / 8) as usize;
+                    tile_map_begin + tile_offset as usize + (tile_x_index as u16 / 8) as usize;
                 let tile_map_offset = tile_map_begin + tile_offset as usize;
 
                 let tile_num = self.vram[tile_address as usize];

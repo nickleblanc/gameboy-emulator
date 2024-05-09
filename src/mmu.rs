@@ -58,8 +58,6 @@ const LCD_STAT: usize = 0xFF41;
 const INTERRUPT_ENABLE: usize = 0xFFFF;
 
 pub struct Memory {
-    // mem: [u8; 0xFFFF],
-    external_ram: [u8; EXTERNAL_RAM_SIZE],
     wram: [u8; WORKING_RAM_SIZE],
     hram: [u8; HIGH_RAM_SIZE],
     pub interrupt_enable: InterruptFlags,
@@ -76,8 +74,6 @@ impl Memory {
         let mut divider = Timer::new(Frequency::F16384);
         divider.enabled = true;
         Memory {
-            // mem: [0; 0xFFFF],
-            external_ram: [0; EXTERNAL_RAM_SIZE],
             wram: [0; WORKING_RAM_SIZE],
             hram: [0; HIGH_RAM_SIZE],
             interrupt_enable: InterruptFlags::new(),
@@ -185,6 +181,18 @@ impl Memory {
             // 0xFF01 => self.mem[address],
             // 0xFF02 => self.mem[address],
             DIVIDER => self.divider.counter,
+            TIMER_COUNTER => self.timer.counter,
+            TIMER_MODULO => self.timer.modulo,
+            TIMER_CONTROL => {
+                let enabled = if self.timer.enabled { 0b100 } else { 0 };
+                let frequency = match self.timer.frequency {
+                    Frequency::F4096 => 0b00,
+                    Frequency::F262144 => 0b01,
+                    Frequency::F65536 => 0b10,
+                    Frequency::F16384 => 0b11,
+                };
+                enabled | frequency
+            }
             INTERRUPT_FLAG => self.interrupt_flags.to_byte(),
             0xFF40 => {
                 // LCD Control
@@ -246,7 +254,7 @@ impl Memory {
             }
             0xFF40 => {
                 // LCD Control
-                self.gpu.lcd_display_enabled = (value >> 7) == 1;
+                self.gpu.lcd_display_enabled = (value & 0x80) == 0x80;
                 self.gpu.window_tile_map = if ((value >> 6) & 0b1) == 1 {
                     TileMap::X9C00
                 } else {
@@ -274,6 +282,7 @@ impl Memory {
                 if !self.gpu.lcd_display_enabled {
                     // self.gpu.line = 0;
                     self.gpu.mode = Mode::HorizontalBlank;
+                    self.gpu.line = 0;
                     // self.gpu.cycles = 0;
                 }
             }
