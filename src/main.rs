@@ -7,6 +7,8 @@ mod mmu;
 mod timer;
 mod utils;
 
+use rfd::FileDialog;
+
 use cpu::CPU;
 use mmu::Memory;
 
@@ -33,28 +35,11 @@ fn main() {
     // let mut rom = File::open("./test-roms/Pokemon - Red.gb").expect("failed to open file");
     // let mut rom = File::open("./test-roms/Pokemon - Silver.gbc").expect("failed to open file");
     // let mut rom = File::open("./test-roms/Pocket Monsters - Aka.gb").expect("failed to open file");
-    // let mut rom =
-    // File::open("./test-roms/Dr. Mario (World) (Rev 1).gb").expect("failed to open file");
-    let mut rom = File::open("./test-roms/dmg-acid2.gb").expect("failed to open file");
-    // let mut rom = File::open("./test-roms/Tetris.gb").expect("failed to open file");
-    // let mut rom = File::open("./test-roms/cpu_instrs.gb").expect("failed to open file");
-    let mut contents = Vec::new();
-    rom.read_to_end(&mut contents).unwrap();
-
-    let cartridge = cartridge::new_cartridge(contents.clone());
-    let mmu = Memory::new(cartridge);
-    let mut cpu = cpu::CPU::new(mmu);
-
-    sdl2(&mut cpu);
-}
-
-fn sdl2(cpu: &mut CPU) {
-    // Initialize SDL2
     let sdl_context = sdl2::init().unwrap();
     let video_subsystem = sdl_context.video().unwrap();
 
     // Create a window
-    let window = video_subsystem
+    let mut window = video_subsystem
         .window(
             "Gameboy Emulator",
             WINDOW_WIDTH as u32,
@@ -63,6 +48,33 @@ fn sdl2(cpu: &mut CPU) {
         .position_centered()
         .build()
         .unwrap();
+
+    let mut rom =
+        File::open("./test-roms/Dr. Mario (World) (Rev 1).gb").expect("failed to open file");
+    // let mut rom = File::open("./test-roms/dmg-acid2.gb").expect("failed to open file");
+    // let mut rom = File::open("./test-roms/Tetris.gb").expect("failed to open file");
+    // let mut rom = File::open("./test-roms/cpu_instrs.gb").expect("failed to open file");
+    // let file_path = FileDialog::new()
+    //     .add_filter("Gameboy ROM", &["gb", "gbc"])
+    //     .pick_file();
+
+    // if let Some(path) = file_path {
+    //     rom = File::open(path).expect("failed to open file");
+    //     window.raise();
+    // }
+
+    let mut contents = Vec::new();
+    rom.read_to_end(&mut contents).unwrap();
+
+    let cartridge = cartridge::new_cartridge(contents.clone());
+    let mmu = Memory::new(cartridge);
+    let mut cpu = cpu::CPU::new(mmu);
+
+    sdl2(&mut cpu, window, sdl_context);
+}
+
+fn sdl2(cpu: &mut CPU, window: Window, sdl_context: sdl2::Sdl) {
+    // Initialize SDL2
 
     let mut canvas = window.into_canvas().build().unwrap();
 
