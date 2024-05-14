@@ -56,6 +56,7 @@ impl Joypad {
         match value {
             0x10 => self.action_buttons,
             0x20 => self.direction_buttons,
+            0x30 => 0xFF,
             _ => 0x0,
         }
     }

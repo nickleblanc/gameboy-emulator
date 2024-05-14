@@ -2,8 +2,7 @@ mod flags_register;
 mod instructions;
 mod registers;
 
-use super::mmu::Memory;
-// use crate::mmu::Memory;
+use crate::mmu::Memory;
 
 use std::fs::OpenOptions;
 use std::io::Write;
@@ -34,18 +33,31 @@ impl CPU {
         }
     }
 
-    pub fn load(&mut self, data: Vec<u8>) {
-        for (i, byte) in data.iter().enumerate() {
-            self.mem.write_byte(i as u16, *byte);
+    fn get_instruction(&self) -> Instruction {
+        let instruction_byte = self.mem.read_byte(self.pc);
+        let prefixed = instruction_byte == 0xCB;
+        if prefixed {
+            let instruction_byte = self.mem.read_byte(self.pc.wrapping_add(1));
+            Instruction::get_instruction(instruction_byte, prefixed)
+        } else {
+            Instruction::get_instruction(instruction_byte, prefixed)
         }
     }
 
     fn log(&self) {
         let string = format!(
-            "A: {:02x?} F: {:02X?} B: {:02X?} C: {:02X?} D: {:02X?} E: {:02X?} H: {:02X?} L: {:02X?} SP: {:04X?} PC: {:04X?} ({:02X?} {:02X?} {:02X?} {:02X?})\n",
-            self.registers.a,
-            u8::from(self.registers.f), self.registers.b, self.registers.c, self.registers.d, self.registers.e, self.registers.h, self.registers.l, self.sp, self.pc, self.mem.read_byte(self.pc.wrapping_add(1)), self.mem.read_byte(self.pc.wrapping_add(2)), self.mem.read_byte(self.pc.wrapping_add(3)), self.mem.read_byte(self.pc.wrapping_add(4))
+            "AF: {:04X?} BC: {:04X?} DE: {:04X?} HL: {:04X?} SP: {:04X?} PC: {:04X?} IME: {:?} INST: {:04X?} ({:02X?} {:02X?} {:02X?} {:02X?}) TMA: {:02X?}\n",
+            self.registers.get_af(), self.registers.get_bc(), self.registers.get_de(), self.registers.get_hl(), self.sp, self.pc, self.ime, self.get_instruction(), self.mem.read_byte(self.pc.wrapping_add(1)), self.mem.read_byte(self.pc.wrapping_add(2)), self.mem.read_byte(self.pc.wrapping_add(3)), self.mem.read_byte(self.pc.wrapping_add(4)), self.mem.read_byte(0xFF06)
         );
+        // let string = format!("TMA: {:02X?}\n", self.mem.read_byte(0xFF06));
+
+        // let string = format!(
+        //     "GPU: {:?} EI: {:02X?} EF: {:02X?} HALT: {:?}\n",
+        //     self.mem.gpu.lcd_display_enabled,
+        //     self.mem.interrupt_enable.to_byte(),
+        //     self.mem.interrupt_flags.to_byte(),
+        //     self.is_halted
+        // );
 
         let mut file = OpenOptions::new()
             .write(true)
@@ -100,6 +112,16 @@ impl CPU {
                 interrupted = true;
                 self.mem.interrupt_flags.timer = false;
                 self.interrupt(0x50);
+            }
+            if self.mem.interrupt_enable.serial && self.mem.interrupt_flags.serial {
+                interrupted = true;
+                self.mem.interrupt_flags.serial = false;
+                self.interrupt(0x58);
+            }
+            if self.mem.interrupt_enable.joypad && self.mem.interrupt_flags.joypad {
+                interrupted = true;
+                self.mem.interrupt_flags.joypad = false;
+                self.interrupt(0x60);
             }
         }
         if interrupted {

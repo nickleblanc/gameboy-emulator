@@ -7,8 +7,8 @@ mod mmu;
 mod timer;
 mod utils;
 
-use crate::cartridge::Cartridge;
-use crate::mmu::Memory;
+use cpu::CPU;
+use mmu::Memory;
 
 use std::io::Read;
 use std::thread::sleep;
@@ -29,12 +29,15 @@ const SCREEN_HEIGHT: u32 = 144;
 const WINDOW_WIDTH: u32 = SCREEN_WIDTH * SCALE;
 const WINDOW_HEIGHT: u32 = SCREEN_HEIGHT * SCALE;
 
-use cpu::CPU;
-
 fn main() {
-    File::create("log.txt").expect("failed to create log file");
-
-    let mut rom = File::open("./test-roms/Tetris.gb").expect("failed to open file");
+    // let mut rom = File::open("./test-roms/Pokemon - Red.gb").expect("failed to open file");
+    // let mut rom = File::open("./test-roms/Pokemon - Silver.gbc").expect("failed to open file");
+    // let mut rom = File::open("./test-roms/Pocket Monsters - Aka.gb").expect("failed to open file");
+    // let mut rom =
+    // File::open("./test-roms/Dr. Mario (World) (Rev 1).gb").expect("failed to open file");
+    let mut rom = File::open("./test-roms/dmg-acid2.gb").expect("failed to open file");
+    // let mut rom = File::open("./test-roms/Tetris.gb").expect("failed to open file");
+    // let mut rom = File::open("./test-roms/cpu_instrs.gb").expect("failed to open file");
     let mut contents = Vec::new();
     rom.read_to_end(&mut contents).unwrap();
 
@@ -81,7 +84,11 @@ fn sdl2(cpu: &mut CPU) {
     'running: loop {
         for event in event_pump.poll_iter() {
             match event {
-                sdl2::event::Event::Quit { .. } => break 'running,
+                Event::Quit { .. }
+                | Event::KeyDown {
+                    keycode: Some(Keycode::Escape),
+                    ..
+                } => break 'running,
                 Event::KeyDown {
                     keycode: Some(keycode),
                     ..

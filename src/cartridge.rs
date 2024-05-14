@@ -1,7 +1,9 @@
 mod mbc1;
+mod mbc3;
 mod rom_only;
 
 use crate::cartridge::mbc1::MBC1;
+use crate::cartridge::mbc3::MBC3;
 use rom_only::RomOnlyCartridge;
 
 pub struct Cartridge {
@@ -26,13 +28,15 @@ pub fn new_cartridge(rom: Vec<u8>) -> Box<dyn CartridgeType> {
     match cartridge_type {
         0x00 => Box::new(RomOnlyCartridge::new(rom)),
         0x01..=0x03 => Box::new(MBC1::new(rom)),
+        0x0F..=0x13 => Box::new(MBC3::new(rom)),
         _ => panic!("Cartridge type not implemented: {:#04x}", cartridge_type),
     }
 }
 
 pub fn get_ram_size(rom: &Vec<u8>) -> Option<usize> {
+    println!("RAM size: {:#04x}", rom[0x149]);
     match rom[0x149] {
-        0x00 => Some(0),
+        0x00 => None,
         0x01 => Some(2 * 1024),
         0x02 => Some(8 * 1024),
         0x03 => Some(32 * 1024),
@@ -47,7 +51,7 @@ impl Cartridge {
         let ram = if has_ram {
             match ram_size {
                 Some(size) => Some(vec![0; size]),
-                None => panic!("RAM size not provided"),
+                None => None,
             }
         } else {
             None
@@ -74,6 +78,10 @@ impl Cartridge {
     }
 
     pub fn read_ram(&self, address: u16) -> u8 {
+        if !self.ram_enabled {
+            return 0;
+        }
+
         let ram_bank = self.ram_bank;
         let offset = 0x2000 * ram_bank as usize;
 
@@ -85,6 +93,10 @@ impl Cartridge {
     }
 
     pub fn write_ram(&mut self, address: u16, value: u8) {
+        if !self.ram_enabled {
+            return;
+        }
+
         let ram_bank = self.ram_bank;
         let offset = 0x2000 * ram_bank as usize;
 
