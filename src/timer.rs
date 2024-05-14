@@ -22,6 +22,7 @@ pub struct Timer {
     pub modulo: u8,
     pub enabled: bool,
     cycles: usize,
+    has_overflowed: bool,
 }
 
 impl Timer {
@@ -32,6 +33,7 @@ impl Timer {
             modulo: 0,
             enabled: false,
             cycles: 0,
+            has_overflowed: false,
         }
     }
 
@@ -40,8 +42,14 @@ impl Timer {
             return false;
         }
 
+        if self.has_overflowed {
+            self.has_overflowed = false;
+            return true;
+        }
+
         self.cycles += cycles as usize;
-        let timer_did_overflow = if self.cycles > self.frequency.cycles_per_tick() {
+        self.has_overflowed = if self.cycles > self.frequency.cycles_per_tick() {
+            self.cycles = self.cycles % self.frequency.cycles_per_tick();
             let (value, overflow) = self.counter.overflowing_add(1);
             self.counter = value;
             overflow
@@ -49,9 +57,6 @@ impl Timer {
             false
         };
 
-        if timer_did_overflow {
-            self.counter = self.modulo;
-        }
-        timer_did_overflow
+        false
     }
 }
