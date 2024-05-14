@@ -2,7 +2,9 @@ use sdl2::keyboard::Mod;
 
 use super::interrupts::InterruptFlags;
 // use super::gpu::{Interrupt, PPU};
-use super::gpu::{BackgroundAndWindowDataSelect, InterruptRequest, Mode, ObjectSize, TileMap, GPU};
+use super::gpu::{
+    stat::Mode, BackgroundAndWindowDataSelect, InterruptRequest, ObjectSize, TileMap, GPU,
+};
 use super::timer::{Frequency, Timer};
 use crate::cartridge::CartridgeType;
 use crate::joypad::Joypad;
@@ -194,33 +196,17 @@ impl Memory {
                 enabled | frequency
             }
             INTERRUPT_FLAG => self.interrupt_flags.to_byte(),
-            0xFF40 => {
-                // LCD Control
-                bit(self.gpu.lcd_display_enabled) << 7
-                    | bit(self.gpu.window_tile_map == TileMap::X9C00) << 6
-                    | bit(self.gpu.window_display_enabled) << 5
-                    | bit(self.gpu.background_and_window_data_select
-                        == BackgroundAndWindowDataSelect::X8000)
-                        << 4
-                    | bit(self.gpu.background_tile_map == TileMap::X9C00) << 3
-                    | bit(self.gpu.object_size == ObjectSize::OS8X16) << 2
-                    | bit(self.gpu.object_display_enabled) << 1
-                    | bit(self.gpu.background_display_enabled)
-            }
-            LCD_STAT => {
-                // LCD Controller Status
-                let mode: u8 = self.gpu.mode.into();
-
-                0b10000000
-                    | bit(self.gpu.line_equals_line_check_interrupt_enabled) << 6
-                    | bit(self.gpu.oam_interrupt_enabled) << 5
-                    | bit(self.gpu.vblank_interrupt_enabled) << 4
-                    | bit(self.gpu.hblank_interrupt_enabled) << 3
-                    | bit(self.gpu.line_equals_line_check) << 2
-                    | mode
-            }
-            0xFF42 => self.gpu.viewport_y_offset,
+            0xFF40 => self.gpu.lcdc.to_byte(),
+            LCD_STAT => self.gpu.stat.to_byte(),
+            0xFF42 => self.gpu.scroll_y,
+            0xFF43 => self.gpu.scroll_x,
             0xFF44 => self.gpu.line,
+            0xFF45 => self.gpu.line_check,
+            0xFF47 => self.gpu.get_bg_palette(),
+            0xFF48 => self.gpu.get_object_palette0(),
+            0xFF49 => self.gpu.get_object_palette1(),
+            0xFF4A => self.gpu.window_y,
+            0xFF4B => self.gpu.window_x,
             // _ => panic!("IO register not implemented: {:#06x}", address),
             _ => 0,
         }
@@ -253,54 +239,21 @@ impl Memory {
                 self.interrupt_flags.from_byte(value);
             }
             0xFF40 => {
-                // LCD Control
-                self.gpu.lcd_display_enabled = (value & 0x80) == 0x80;
-                self.gpu.window_tile_map = if ((value >> 6) & 0b1) == 1 {
-                    TileMap::X9C00
-                } else {
-                    TileMap::X9800
-                };
-                self.gpu.window_display_enabled = ((value >> 5) & 0b1) == 1;
-                self.gpu.background_and_window_data_select = if ((value >> 4) & 0b1) == 1 {
-                    BackgroundAndWindowDataSelect::X8000
-                } else {
-                    BackgroundAndWindowDataSelect::X8800
-                };
-                self.gpu.background_tile_map = if ((value >> 3) & 0b1) == 1 {
-                    TileMap::X9C00
-                } else {
-                    TileMap::X9800
-                };
-                self.gpu.object_size = if ((value >> 2) & 0b1) == 1 {
-                    ObjectSize::OS8X16
-                } else {
-                    ObjectSize::OS8X8
-                };
-                self.gpu.object_display_enabled = ((value >> 1) & 0b1) == 1;
-                self.gpu.background_display_enabled = (value & 0b1) == 1;
-
-                if !self.gpu.lcd_display_enabled {
-                    // self.gpu.line = 0;
-                    self.gpu.mode = Mode::HorizontalBlank;
-                    self.gpu.line = 0;
-                    // self.gpu.cycles = 0;
+                self.gpu.lcdc.from_byte(value);
+                if value & 0x80 == 0 {
+                    self.gpu.stat.mode = Mode::HorizontalBlank;
                 }
             }
             LCD_STAT => {
-                // LCD Controller Status
-                self.gpu.line_equals_line_check_interrupt_enabled =
-                    (value & 0b1000000) == 0b1000000;
-                self.gpu.oam_interrupt_enabled = (value & 0b100000) == 0b100000;
-                self.gpu.vblank_interrupt_enabled = (value & 0b10000) == 0b10000;
-                self.gpu.hblank_interrupt_enabled = (value & 0b1000) == 0b1000;
+                self.gpu.stat.from_byte(value);
             }
             0xFF42 => {
                 // Viewport Y Offset
-                self.gpu.viewport_y_offset = value;
+                self.gpu.scroll_y = value;
             }
             0xFF43 => {
                 // Viewport X Offset
-                self.gpu.viewport_x_offset = value;
+                self.gpu.scroll_x = value;
             }
             0xFF45 => {
                 self.gpu.line_check = value;
@@ -311,6 +264,24 @@ impl Memory {
                     let byte = self.read_byte(start + i);
                     self.write_byte(0xFE00 + i, byte);
                 }
+            }
+            0xFF47 => {
+                println!("BG Palette 0: {:#04x}", value);
+                self.gpu.set_bg_palette(value);
+            }
+            0xFF48 => {
+                println!("Palette 0: {:#04x}", value);
+                self.gpu.set_object_palette0(value);
+            }
+            0xFF49 => {
+                println!("Palette 1: {:#04x}", value);
+                self.gpu.set_object_palette1(value);
+            }
+            0xFF4A => {
+                self.gpu.window_y = value;
+            }
+            0xFF4B => {
+                self.gpu.window_x = value;
             }
             _ => {
                 // panic!("IO register not implemented: {:#06x}", address);

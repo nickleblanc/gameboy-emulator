@@ -1,7 +1,9 @@
 mod mbc1;
+mod mbc3;
 mod rom_only;
 
 use crate::cartridge::mbc1::MBC1;
+use crate::cartridge::mbc3::MBC3;
 use rom_only::RomOnlyCartridge;
 
 pub struct Cartridge {
@@ -26,6 +28,7 @@ pub fn new_cartridge(rom: Vec<u8>) -> Box<dyn CartridgeType> {
     match cartridge_type {
         0x00 => Box::new(RomOnlyCartridge::new(rom)),
         0x01..=0x03 => Box::new(MBC1::new(rom)),
+        0x0F..=0x13 => Box::new(MBC3::new(rom)),
         _ => panic!("Cartridge type not implemented: {:#04x}", cartridge_type),
     }
 }

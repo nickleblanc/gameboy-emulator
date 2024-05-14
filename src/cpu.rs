@@ -2,8 +2,7 @@ mod flags_register;
 mod instructions;
 mod registers;
 
-use super::mmu::Memory;
-// use crate::mmu::Memory;
+use crate::mmu::Memory;
 
 use std::fs::OpenOptions;
 use std::io::Write;

@@ -1,6 +1,12 @@
 use std;
 
-use super::mmu::{OAM_SIZE, VRAM_BEGIN, VRAM_SIZE};
+mod lcdc;
+pub mod stat;
+
+use lcdc::Lcdc;
+use stat::{Mode, Stat};
+
+use crate::mmu::{OAM_SIZE, VRAM_BEGIN, VRAM_SIZE};
 
 const TILESET_FIRST_BEGIN_ADDRESS: u16 = 0x8000;
 const TILESET_SECOND_BEGIN_ADDRESS: u16 = 0x9000;
@@ -22,7 +28,7 @@ impl std::convert::From<u8> for Color {
             1 => Color::LightGray,
             2 => Color::DarkGray,
             3 => Color::Black,
-            _ => panic!("Cannot covert {} to color", n),
+            _ => panic!("Cannot convert {} to color", n),
         }
     }
 }
@@ -72,25 +78,6 @@ pub enum BackgroundAndWindowDataSelect {
 pub enum ObjectSize {
     OS8X8,
     OS8X16,
-}
-
-#[cfg_attr(feature = "serialize", derive(Serialize))]
-#[derive(Copy, Clone, Debug, PartialEq)]
-pub enum Mode {
-    HorizontalBlank,
-    VerticalBlank,
-    OAMAccess,
-    VRAMAccess,
-}
-impl std::convert::From<Mode> for u8 {
-    fn from(value: Mode) -> Self {
-        match value {
-            Mode::HorizontalBlank => 0,
-            Mode::VerticalBlank => 1,
-            Mode::OAMAccess => 2,
-            Mode::VRAMAccess => 3,
-        }
-    }
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -173,11 +160,13 @@ impl InterruptRequest {
     }
 }
 
-#[cfg_attr(feature = "serialize", derive(Serialize))]
-pub struct Window {
-    pub x: u8,
-    pub y: u8,
+#[derive(Copy, Clone)]
+enum PriorityFlag {
+    None,
+    Color0,
 }
+
+#[cfg_attr(feature = "serialize", derive(Serialize))]
 
 const SCREEN_WIDTH: usize = 160;
 const SCREEN_HEIGHT: usize = 144;
@@ -194,32 +183,19 @@ pub struct GPU {
     #[cfg_attr(feature = "serialize", serde(skip_serializing))]
     pub oam: [u8; OAM_SIZE],
     pub background_colors: BackgroundColors,
-    pub viewport_x_offset: u8,
-    pub viewport_y_offset: u8,
-    pub lcd_display_enabled: bool,
-    pub window_display_enabled: bool,
-    pub background_display_enabled: bool,
-    pub object_display_enabled: bool,
-    pub line_equals_line_check_interrupt_enabled: bool,
-    pub oam_interrupt_enabled: bool,
-    pub vblank_interrupt_enabled: bool,
-    pub hblank_interrupt_enabled: bool,
     pub line_check: u8,
-    pub line_equals_line_check: bool,
-    pub window_tile_map: TileMap,
-    pub background_tile_map: TileMap,
-    pub background_and_window_data_select: BackgroundAndWindowDataSelect,
-    pub object_size: ObjectSize,
-    pub obj_0_color_1: Color,
-    pub obj_0_color_2: Color,
-    pub obj_0_color_3: Color,
-    pub obj_1_color_1: Color,
-    pub obj_1_color_2: Color,
-    pub obj_1_color_3: Color,
-    pub window: Window,
     pub line: u8,
-    pub mode: Mode,
     pub cycles: u16,
+    pub window_x: u8,
+    pub window_y: u8,
+    pub scroll_x: u8,
+    pub scroll_y: u8,
+    pub lcdc: Lcdc,
+    pub stat: Stat,
+    wly: u8,
+    bg_priority_map: [PriorityFlag; 65792],
+    sprite_palette0: [Color; 4],
+    sprite_palette1: [Color; 4],
 }
 
 impl GPU {
@@ -230,33 +206,20 @@ impl GPU {
             object_data: [Default::default(); NUMBER_OF_OBJECTS],
             vram: [0; VRAM_SIZE],
             oam: [0; OAM_SIZE],
-            background_colors: BackgroundColors::new(),
-            viewport_x_offset: 0,
-            viewport_y_offset: 0,
-            lcd_display_enabled: false,
-            window_display_enabled: false,
-            background_display_enabled: false,
-            object_display_enabled: false,
-            line_equals_line_check_interrupt_enabled: false,
-            oam_interrupt_enabled: false,
-            vblank_interrupt_enabled: false,
-            hblank_interrupt_enabled: false,
+            background_colors: BackgroundColors::from(0xFC),
             line_check: 0,
-            line_equals_line_check: false,
-            window_tile_map: TileMap::X9800,
-            background_tile_map: TileMap::X9800,
-            background_and_window_data_select: BackgroundAndWindowDataSelect::X8800,
-            object_size: ObjectSize::OS8X8,
-            obj_0_color_1: Color::LightGray,
-            obj_0_color_2: Color::DarkGray,
-            obj_0_color_3: Color::Black,
-            obj_1_color_1: Color::LightGray,
-            obj_1_color_2: Color::DarkGray,
-            obj_1_color_3: Color::Black,
-            window: Window { x: 0, y: 0 },
             line: 0,
             cycles: 0,
-            mode: Mode::HorizontalBlank,
+            window_x: 0,
+            window_y: 0,
+            scroll_x: 0,
+            scroll_y: 0,
+            lcdc: Lcdc::new(),
+            stat: Stat::new(),
+            wly: 0,
+            bg_priority_map: [PriorityFlag::None; 65792],
+            sprite_palette0: [Color::Black; 4],
+            sprite_palette1: [Color::White; 4],
         }
     }
 
@@ -348,29 +311,82 @@ impl GPU {
         }
     }
 
+    pub fn set_bg_palette(&mut self, value: u8) {
+        self.background_colors = BackgroundColors::from(value);
+    }
+
+    pub fn set_object_palette0(&mut self, value: u8) {
+        self.sprite_palette0 = [
+            Color::from(value & 0b11),
+            Color::from((value >> 2) & 0b11),
+            Color::from((value >> 4) & 0b11),
+            Color::from(value >> 6),
+        ];
+    }
+
+    pub fn set_object_palette1(&mut self, value: u8) {
+        self.sprite_palette1 = [
+            Color::from(value & 0b11),
+            Color::from((value >> 2) & 0b11),
+            Color::from((value >> 4) & 0b11),
+            Color::from(value >> 6),
+        ];
+    }
+
+    pub fn get_bg_palette(&self) -> u8 {
+        let mut value = 0;
+        value |= self.background_colors.0 as u8;
+        value |= (self.background_colors.1 as u8) << 2;
+        value |= (self.background_colors.2 as u8) << 4;
+        value |= (self.background_colors.3 as u8) << 6;
+        value
+    }
+
+    pub fn get_object_palette0(&self) -> u8 {
+        let mut value = 0;
+        value |= self.sprite_palette0[0] as u8;
+        value |= (self.sprite_palette0[1] as u8) << 2;
+        value |= (self.sprite_palette0[2] as u8) << 4;
+        value |= (self.sprite_palette0[3] as u8) << 6;
+        value
+    }
+
+    pub fn get_object_palette1(&self) -> u8 {
+        let mut value = 0;
+        value |= self.sprite_palette1[0] as u8;
+        value |= (self.sprite_palette1[1] as u8) << 2;
+        value |= (self.sprite_palette1[2] as u8) << 4;
+        value |= (self.sprite_palette1[3] as u8) << 6;
+        value
+    }
+
     pub fn step(&mut self, cycles: u8) -> InterruptRequest {
         let mut request = InterruptRequest::None;
-        if !self.lcd_display_enabled {
+        if !self.lcdc.display_enabled {
             return request;
         }
         self.cycles += cycles as u16;
 
-        let mode = self.mode;
-        match mode {
+        match self.stat.mode {
             Mode::HorizontalBlank => {
                 if self.cycles >= 200 {
                     self.cycles = self.cycles % 200;
                     self.line += 1;
 
+                    // if self.line >= self.window_y && self.window_x < 166 && self.window_x > 0 {
+                    //     self.wly += 1;
+                    // }
+
                     if self.line >= 144 {
-                        self.mode = Mode::VerticalBlank;
-                        if self.vblank_interrupt_enabled {
+                        self.stat.mode = Mode::VerticalBlank;
+                        if self.stat.v_blank_interrupt {
                             request.add(InterruptRequest::LCDStat)
                         }
                         request.add(InterruptRequest::VBlank);
+                        self.bg_priority_map = [PriorityFlag::None; 65792];
                     } else {
-                        self.mode = Mode::OAMAccess;
-                        if self.oam_interrupt_enabled {
+                        self.stat.mode = Mode::OAMAccess;
+                        if self.stat.oam_interrupt {
                             request.add(InterruptRequest::LCDStat)
                         }
                     }
@@ -382,9 +398,10 @@ impl GPU {
                     self.cycles = self.cycles % 456;
                     self.line += 1;
                     if self.line == 154 {
-                        self.mode = Mode::OAMAccess;
+                        self.stat.mode = Mode::OAMAccess;
                         self.line = 0;
-                        if self.oam_interrupt_enabled {
+                        self.wly = 0;
+                        if self.stat.oam_interrupt {
                             request.add(InterruptRequest::LCDStat)
                         }
                     }
@@ -394,16 +411,16 @@ impl GPU {
             Mode::OAMAccess => {
                 if self.cycles >= 80 {
                     self.cycles = self.cycles % 80;
-                    self.mode = Mode::VRAMAccess;
+                    self.stat.mode = Mode::VRAMAccess;
                 }
             }
             Mode::VRAMAccess => {
                 if self.cycles >= 172 {
                     self.cycles = self.cycles % 172;
-                    if self.hblank_interrupt_enabled {
+                    if self.stat.h_blank_interrupt {
                         request.add(InterruptRequest::LCDStat)
                     }
-                    self.mode = Mode::HorizontalBlank;
+                    self.stat.mode = Mode::HorizontalBlank;
                     self.render_scan_line()
                 }
             }
@@ -413,149 +430,343 @@ impl GPU {
 
     fn set_equal_lines_check(&mut self, request: &mut InterruptRequest) {
         let line_equals_line_check = self.line == self.line_check;
-        if line_equals_line_check && self.line_equals_line_check_interrupt_enabled {
+        if line_equals_line_check && self.stat.coincidence_interrupt {
             request.add(InterruptRequest::LCDStat);
         }
-        self.line_equals_line_check = line_equals_line_check;
+        self.stat.coincidence_flag = line_equals_line_check;
     }
 
     fn render_scan_line(&mut self) {
-        if self.background_display_enabled {
+        if self.lcdc.bg_window_enabled {
             self.render_background_line();
+        } else {
+            for x in 0..SCREEN_WIDTH {
+                let canvas_buffer_offset = (x * 4) + (self.line as usize * SCREEN_WIDTH * 4);
+                self.canvas_buffer[canvas_buffer_offset] = 255;
+                self.canvas_buffer[canvas_buffer_offset + 1] = 255;
+                self.canvas_buffer[canvas_buffer_offset + 2] = 255;
+                self.canvas_buffer[canvas_buffer_offset + 3] = 255;
+            }
         }
 
-        if self.object_display_enabled {
+        if self.lcdc.window_display_enabled {
+            self.render_window_line();
+        }
+
+        if self.lcdc.object_display_enabled {
             self.render_object_line();
         }
     }
 
     fn render_background_line(&mut self) {
-        if self.background_display_enabled {
-            // let mut pixel_index = self.viewport_x_offset % 8;
+        let tile_y_index = self.line.wrapping_add(self.scroll_y);
 
-            // let mut tile_x_index = self.viewport_x_offset / 8;
-            // The current scan line's y-offset in the entire background space is a combination
-            // of both the line inside the view port we're currently on and the amount of the view port is scrolled
-            let tile_y_index = self.line.wrapping_add(self.viewport_y_offset);
-            // The current tile we're on is equal to the total y offset broken up into 8 pixel chunks
-            // and multipled by the width of the entire background (i.e. 32 tiles)
+        for x in 0..SCREEN_WIDTH as u8 {
+            let tile_x_index = x.wrapping_add(self.scroll_x);
 
-            // Munge this so that the beginning of VRAM is index 0
+            let tile_address = self.calculate_bg_address(tile_y_index, tile_x_index);
 
-            // Where we are in the tile map is the beginning of the tile map
-            // plus the current tile's offset
+            // let tile_address = self.calculate_bg_address(tile_y_index, tile_x_index);
 
-            let row_y_offset = tile_y_index % 8;
+            let tile_number = self.vram[(tile_address - VRAM_BEGIN as u16) as usize];
 
-            for x in 0..SCREEN_WIDTH {
-                let tile_x_index = x.wrapping_add(self.viewport_x_offset as usize);
+            let tile = self.calculate_tile_address(tile_number) - VRAM_BEGIN as u16;
 
-                let background_tile_map = if self.background_tile_map == TileMap::X9800 {
-                    0x9800
-                } else {
-                    0x9C00
-                };
+            // let pixel_index = self.scroll_x.wrapping_add(x as u8) % 8;
+            let pixel_index = 7 - (tile_x_index % 8) as u8;
 
-                let tile_map_begin = background_tile_map - VRAM_BEGIN;
+            // let pixel_index = if column_is_window && line_is_window {
+            //     self.window_x.wrapping_sub(x) % 8
+            // } else {
+            //     7 - (tile_x_index % 8)
+            // };
 
-                let tile_offset = (tile_y_index as u16 / 8) * 32;
+            let y_address_offset = (tile_y_index % 8 * 2) as u16;
+            // let y_address_offset = if line_is_window && column_is_window {
+            //     ((self.line - self.window_y) % 8 * 2) as u16
+            // } else {
+            //     (tile_y_index % 8 * 2) as u16
+            // };
 
-                let tile_address =
-                    tile_map_begin + tile_offset as usize + (tile_x_index as u16 / 8) as usize;
-                let tile_map_offset = tile_map_begin + tile_offset as usize;
+            let tile_data_address = tile + y_address_offset;
 
-                let tile_num = self.vram[tile_address as usize];
+            let tile_data = self.vram[tile_data_address as usize];
+            let tile_color_data = self.vram[tile_data_address as usize + 1];
 
-                let tile_begin_address = self.calculate_tile_address(tile_num) - VRAM_BEGIN as u16;
+            // let tile_value =
+            //     self.tile_set[tile as usize][row_y_offset as usize][pixel_index as usize];
+            // let color = self.tile_value_to_background_color(&tile_value);
 
-                // let tile_index = self.vram[tile_begin_address as usize];
-                let tile_index = self.vram[tile_address];
+            // let color = if line_is_window && column_is_window {
+            //     // self.get_tile_color(tile_data, tile_color_data, pixel_index)
+            //     self.background_colors.3
+            // } else {
+            //     self.get_tile_color(tile_data, tile_color_data, pixel_index)
+            // };
+            let color = self.get_tile_color(tile_data, tile_color_data, pixel_index);
 
-                let tile = (self.calculate_tile_address(tile_index) - VRAM_BEGIN as u16) / 16;
-
-                let pixel_index = self.viewport_x_offset.wrapping_add(x as u8) % 8;
-
-                let tile_value =
-                    self.tile_set[tile as usize][row_y_offset as usize][pixel_index as usize];
-                let color = self.tile_value_to_background_color(&tile_value);
-
-                let canvas_buffer_offset = (x * 4) + (self.line as usize * SCREEN_WIDTH * 4);
-
-                self.canvas_buffer[canvas_buffer_offset] = color as u8;
-                self.canvas_buffer[canvas_buffer_offset + 1] = color as u8;
-                self.canvas_buffer[canvas_buffer_offset + 2] = color as u8;
-                self.canvas_buffer[canvas_buffer_offset + 3] = 255;
+            if color == self.background_colors.0 {
+                self.bg_priority_map[self.line as usize + 256 * x as usize] = PriorityFlag::Color0;
             }
+
+            let canvas_buffer_offset = (x as usize * 4) + (self.line as usize * SCREEN_WIDTH * 4);
+
+            self.canvas_buffer[canvas_buffer_offset] = color as u8;
+            self.canvas_buffer[canvas_buffer_offset + 1] = color as u8;
+            self.canvas_buffer[canvas_buffer_offset + 2] = color as u8;
+            self.canvas_buffer[canvas_buffer_offset + 3] = 255;
         }
+    }
+
+    fn render_window_line(&mut self) {
+        let tile_y_index = self.line.wrapping_add(self.window_y);
+        // let tile_y_index = self.wly.wrapping_add(self.scroll_y);
+        // let tile_y_index = self.wly;
+
+        if (self.line < self.window_y) {
+            return;
+        }
+
+        if (self.window_x < 7) {
+            return;
+        }
+
+        if (self.window_x >= 167) {
+            return;
+        }
+
+        if (self.line >= 144) {
+            return;
+        }
+
+        let screen_x = self.window_x.wrapping_sub(7);
+
+        for x in screen_x..SCREEN_WIDTH as u8 {
+            // let tile_address = self.calculate_bg_address(tile_y_index, tile_x_index);
+            let tile_address = self.calculate_window_address(self.wly, x);
+
+            let tile_number = self.vram[(tile_address - VRAM_BEGIN as u16) as usize];
+
+            let tile = self.calculate_tile_address(tile_number) - VRAM_BEGIN as u16;
+
+            let pixel_index = self.window_x.wrapping_sub(x) % 8;
+
+            // let y_address_offset = (tile_y_index % 8 * 2) as u16;
+            let y_address_offset = ((self.wly) % 8 * 2) as u16;
+
+            let tile_data_address = tile + y_address_offset;
+
+            let tile_data = self.vram[tile_data_address as usize];
+            let tile_color_data = self.vram[tile_data_address as usize + 1];
+
+            let color = self.get_tile_color(tile_data, tile_color_data, pixel_index);
+
+            let canvas_buffer_offset = (x as usize * 4) + (self.line as usize * SCREEN_WIDTH * 4);
+
+            self.canvas_buffer[canvas_buffer_offset] = color as u8;
+            self.canvas_buffer[canvas_buffer_offset + 1] = color as u8;
+            self.canvas_buffer[canvas_buffer_offset + 2] = color as u8;
+            self.canvas_buffer[canvas_buffer_offset + 3] = 255;
+        }
+        self.wly = self.wly.wrapping_add(1);
+    }
+
+    fn background_has_priority(&self, priority: bool, offset: usize) -> bool {
+        if !priority {
+            return false;
+        }
+
+        match self.bg_priority_map[offset] {
+            PriorityFlag::None => true,
+            PriorityFlag::Color0 => false,
+        }
+    }
+
+    fn calculate_window_address(&self, y: u8, x: u8) -> u16 {
+        let tile_map = if self.lcdc.window_tile_map {
+            0x9C00
+        } else {
+            0x9800
+        };
+        // let y_offset = y.wrapping_sub(self.window_y);
+        let x_offset = x.wrapping_sub(self.window_x.wrapping_sub(7));
+
+        calculate_address(tile_map, y, x_offset)
+    }
+
+    fn calculate_bg_address(&self, y: u8, x: u8) -> u16 {
+        let tile_map = if self.lcdc.bg_tile_map {
+            0x9C00
+        } else {
+            0x9800
+        };
+
+        calculate_address(tile_map, y, x)
+    }
+
+    fn get_tile_color(&self, tile_data: u8, tile_color_data: u8, pixel_index: u8) -> Color {
+        let value = (if tile_data & (1 << pixel_index) > 0 {
+            1
+        } else {
+            0
+        }) | (if tile_color_data & (1 << pixel_index) > 0 {
+            1
+        } else {
+            0
+        }) << 1;
+
+        let value = match value {
+            0 => TilePixelValue::Zero,
+            1 => TilePixelValue::One,
+            2 => TilePixelValue::Two,
+            3 => TilePixelValue::Three,
+            _ => unreachable!(),
+        };
+
+        self.tile_value_to_background_color(&value)
     }
 
     fn calculate_tile_address(&self, tile_number: u8) -> u16 {
-        //Use first tileset, tile_number interpreted as unsigned
-        // println!("tile_number: {}", tile_number);
-        // println!(
-        //     "background_and_window_data_select: {:?}",
-        //     self.background_and_window_data_select
-        // );
-        if self.background_and_window_data_select == BackgroundAndWindowDataSelect::X8000 {
+        if self.lcdc.bg_window_tile_data {
             return TILESET_FIRST_BEGIN_ADDRESS + tile_number as u16 * 16;
         }
-        //Use second tileset, tile_number interpreted as signed
         TILESET_SECOND_BEGIN_ADDRESS.wrapping_add(((tile_number as i8) as u16).wrapping_mul(16))
     }
 
+    // fn render_object_line(&mut self) {
+    //     let mut scan_line: [TilePixelValue; SCREEN_WIDTH] = [Default::default(); SCREEN_WIDTH];
+    //     let mut num_objects = 0;
+    //     let object_height = if self.lcdc.sprite_size { 16 } else { 8 };
+    //     for object in self.object_data.iter() {
+    //         if num_objects >= 10 {
+    //             break;
+    //         }
+    //         let line = self.line as i16;
+    //         if object.y <= line && object.y + object_height > line {
+    //             let pixel_y_offset = line - object.y;
+    //             let tile_index = if object_height == 16 && (!object.yflip && pixel_y_offset > 7)
+    //                 || (object.yflip && pixel_y_offset <= 7)
+    //             {
+    //                 object.tile + 1
+    //             } else {
+    //                 object.tile
+    //             };
+
+    //             let tile = self.tile_set[tile_index as usize];
+    //             let tile_row = if object.yflip {
+    //                 tile[(7 - (pixel_y_offset % 8)) as usize]
+    //             } else {
+    //                 tile[(pixel_y_offset % 8) as usize]
+    //             };
+
+    //             let canvas_y_offset = line as i32 * SCREEN_WIDTH as i32;
+    //             let mut canvas_offset = ((canvas_y_offset + object.x as i32) * 4) as usize;
+    //             for x in 0..8i16 {
+    //                 let pixel_x_offset = if object.xflip { (7 - x) } else { x } as usize;
+    //                 let x_offset = object.x + x;
+    //                 let pixel = tile_row[pixel_x_offset];
+    //                 if x_offset >= 0
+    //                     && x_offset < SCREEN_WIDTH as i16
+    //                     && pixel != TilePixelValue::Zero
+    //                     && (object.priority || scan_line[x_offset as usize] == TilePixelValue::Zero)
+    //                 {
+    //                     let color = self.tile_value_to_background_color(&pixel);
+
+    //                     self.canvas_buffer[canvas_offset + 0] = color as u8;
+    //                     self.canvas_buffer[canvas_offset + 1] = color as u8;
+    //                     self.canvas_buffer[canvas_offset + 2] = color as u8;
+    //                     self.canvas_buffer[canvas_offset + 3] = 255;
+    //                 }
+    //                 canvas_offset = canvas_offset.wrapping_add(4);
+    //             }
+    //             num_objects += 1;
+    //         }
+    //     }
+    // }
+
+    fn fetch_objects(&self) -> Vec<ObjectData> {
+        let object_height = if self.lcdc.sprite_size { 16 } else { 8 };
+        let mut objects: Vec<ObjectData> = vec![];
+        for object in 0..40 {
+            if objects.len() >= 10 {
+                break;
+            }
+            let object_address = object * 4;
+            let y = self.oam[object_address].wrapping_sub(16);
+            let object_x = self.oam[object_address + 1] as i16 - 8;
+            if self.line >= y && self.line < y + object_height {
+                let mut tile = self.oam[object_address + 2];
+                let options = self.oam[object_address + 3];
+                if object_height == 16 {
+                    tile &= 0xFE;
+                }
+                objects.push(ObjectData {
+                    x: object_x,
+                    y: y as i16,
+                    tile,
+                    palette: if options & 0x10 != 0 {
+                        ObjectPalette::One
+                    } else {
+                        ObjectPalette::Zero
+                    },
+                    xflip: options & 0x20 != 0,
+                    yflip: options & 0x40 != 0,
+                    priority: options & 0x80 != 0,
+                });
+            }
+        }
+        objects.sort_by_key(|object| object.x);
+        objects
+    }
+
     fn render_object_line(&mut self) {
-        let mut scan_line: [TilePixelValue; SCREEN_WIDTH] = [Default::default(); SCREEN_WIDTH];
-        if self.object_display_enabled {
-            let object_height = if self.object_size == ObjectSize::OS8X16 {
-                16
+        let object_height = if self.lcdc.sprite_size { 16 } else { 8 };
+        let objs = self.fetch_objects();
+        for object in objs.iter().rev() {
+            let line_offset = if object.yflip {
+                object_height - 1 - (self.line as i16 - object.y)
             } else {
-                8
+                self.line as i16 - object.y
             };
-            for object in self.object_data.iter() {
-                let line = self.line as i16;
-                if object.y <= line && object.y + object_height > line {
-                    let pixel_y_offset = line - object.y;
-                    let tile_index = if object_height == 16 && (!object.yflip && pixel_y_offset > 7)
-                        || (object.yflip && pixel_y_offset <= 7)
-                    {
-                        object.tile + 1
-                    } else {
-                        object.tile
-                    };
 
-                    let tile = self.tile_set[tile_index as usize];
-                    let tile_row = if object.yflip {
-                        tile[(7 - (pixel_y_offset % 8)) as usize]
-                    } else {
-                        tile[(pixel_y_offset % 8) as usize]
-                    };
+            let tile_address = object.tile as u16 * 16;
 
-                    let canvas_y_offset = line as i32 * SCREEN_WIDTH as i32;
-                    let mut canvas_offset = ((canvas_y_offset + object.x as i32) * 4) as usize;
-                    for x in 0..8i16 {
-                        let pixel_x_offset = if object.xflip { (7 - x) } else { x } as usize;
-                        let x_offset = object.x + x;
-                        let pixel = tile_row[pixel_x_offset];
-                        if x_offset >= 0
-                            && x_offset < SCREEN_WIDTH as i16
-                            && pixel != TilePixelValue::Zero
-                            && (object.priority
-                                || scan_line[x_offset as usize] == TilePixelValue::Zero)
-                        {
-                            let color = self.tile_value_to_background_color(&pixel);
+            let tile_data = self.vram[tile_address as usize + (line_offset * 2) as usize];
+            let tile_color_data = self.vram[tile_address as usize + (line_offset * 2) as usize + 1];
 
-                            self.canvas_buffer[canvas_offset + 0] = color as u8;
-                            self.canvas_buffer[canvas_offset + 1] = color as u8;
-                            self.canvas_buffer[canvas_offset + 2] = color as u8;
-                            self.canvas_buffer[canvas_offset + 3] = 255;
-                        }
-                        canvas_offset = canvas_offset.wrapping_add(4);
-                    }
+            for x in 0..8 {
+                let x_offset = object.x + x as i16;
+
+                if x_offset < 0 || x_offset >= SCREEN_WIDTH as i16 {
+                    continue;
+                }
+
+                let pixel_index = if object.xflip { x } else { 7 - x };
+
+                let color_index = get_color_index(tile_data, tile_color_data, pixel_index);
+
+                let object_palette = if object.palette == ObjectPalette::One {
+                    self.sprite_palette1
+                } else {
+                    self.sprite_palette0
+                };
+
+                if color_index != 0 {
+                    let offset = self.line as usize + 256 * x_offset as usize;
+                    let color = object_palette[color_index as usize];
+
+                    // if !self.background_has_priority(object.priority, offset) {
+                    let canvas_buffer_offset =
+                        (x_offset as usize * 4) + (self.line as usize * SCREEN_WIDTH * 4);
+
+                    self.canvas_buffer[canvas_buffer_offset] = color as u8;
+                    self.canvas_buffer[canvas_buffer_offset + 1] = color as u8;
+                    self.canvas_buffer[canvas_buffer_offset + 2] = color as u8;
+                    self.canvas_buffer[canvas_buffer_offset + 3] = 255;
+                    // }
                 }
             }
         }
-
-        if self.window_display_enabled {}
     }
 
     fn tile_value_to_background_color(&self, tile_value: &TilePixelValue) -> Color {
@@ -566,4 +777,20 @@ impl GPU {
             TilePixelValue::Three => self.background_colors.3,
         }
     }
+}
+
+fn calculate_address(address: u16, y: u8, x: u8) -> u16 {
+    address + (y as u16 / 8 * 32) + (x as u16 / 8)
+}
+
+fn get_color_index(tile_data: u8, tile_color_data: u8, pixel_index: u8) -> u8 {
+    (if tile_data & (1 << pixel_index) > 0 {
+        1
+    } else {
+        0
+    }) | (if tile_color_data & (1 << pixel_index) > 0 {
+        1
+    } else {
+        0
+    }) << 1
 }
