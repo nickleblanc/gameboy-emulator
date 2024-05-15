@@ -5,9 +5,6 @@ mod interrupts;
 mod joypad;
 mod mmu;
 mod timer;
-mod utils;
-
-use rfd::FileDialog;
 
 use cpu::CPU;
 use mmu::Memory;
@@ -16,14 +13,15 @@ use std::io::Read;
 use std::thread::sleep;
 use std::{fs::File, time::Duration, time::Instant};
 
-use joypad::{Joypad, Key};
+use joypad::Key;
 
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
-use sdl2::pixels::Color;
 use sdl2::rect::Rect;
-use sdl2::render::Canvas;
 use sdl2::video::Window;
+
+// use rfd::FileDialog;
+// use std::path::PathBuf;
 
 const SCALE: u32 = 5;
 const SCREEN_WIDTH: u32 = 160;
@@ -31,32 +29,23 @@ const SCREEN_HEIGHT: u32 = 144;
 const WINDOW_WIDTH: u32 = SCREEN_WIDTH * SCALE;
 const WINDOW_HEIGHT: u32 = SCREEN_HEIGHT * SCALE;
 
+const DEBUG: bool = false;
+
 fn main() {
-    // let mut rom = File::open("./test-roms/Pokemon - Red.gb").expect("failed to open file");
+    let mut rom = File::open("./test-roms/Pokemon - Red.gb").expect("failed to open file");
     // let mut rom = File::open("./test-roms/Pokemon - Silver.gbc").expect("failed to open file");
     // let mut rom = File::open("./test-roms/Pocket Monsters - Aka.gb").expect("failed to open file");
-    let sdl_context = sdl2::init().unwrap();
-    let video_subsystem = sdl_context.video().unwrap();
 
-    // Create a window
-    let mut window = video_subsystem
-        .window(
-            "Gameboy Emulator",
-            WINDOW_WIDTH as u32,
-            WINDOW_HEIGHT as u32,
-        )
-        .position_centered()
-        .build()
-        .unwrap();
+    let (window, sdl_context) = initialize_sdl2();
 
-    let mut rom =
-        File::open("./test-roms/Dr. Mario (World) (Rev 1).gb").expect("failed to open file");
+    // let mut rom =
+    // File::open("./test-roms/Dr. Mario (World) (Rev 1).gb").expect("failed to open file");
     // let mut rom = File::open("./test-roms/dmg-acid2.gb").expect("failed to open file");
+    // let mut rom = File::open("./test-roms/cgb-acid2.gbc").expect("failed to open file");
     // let mut rom = File::open("./test-roms/Tetris.gb").expect("failed to open file");
     // let mut rom = File::open("./test-roms/cpu_instrs.gb").expect("failed to open file");
-    // let file_path = FileDialog::new()
-    //     .add_filter("Gameboy ROM", &["gb", "gbc"])
-    //     .pick_file();
+
+    // let file_path = file_dialog();
 
     // if let Some(path) = file_path {
     //     rom = File::open(path).expect("failed to open file");
@@ -71,6 +60,24 @@ fn main() {
     let mut cpu = cpu::CPU::new(mmu);
 
     sdl2(&mut cpu, window, sdl_context);
+}
+
+fn initialize_sdl2() -> (Window, sdl2::Sdl) {
+    let sdl_context = sdl2::init().unwrap();
+    let video_subsystem = sdl_context.video().unwrap();
+
+    // Create a window
+    let window = video_subsystem
+        .window(
+            "Gameboy Emulator",
+            WINDOW_WIDTH as u32,
+            WINDOW_HEIGHT as u32,
+        )
+        .position_centered()
+        .build()
+        .unwrap();
+
+    (window, sdl_context)
 }
 
 fn sdl2(cpu: &mut CPU, window: Window, sdl_context: sdl2::Sdl) {
@@ -139,6 +146,9 @@ fn sdl2(cpu: &mut CPU, window: Window, sdl_context: sdl2::Sdl) {
         let mut cycles_elapsed = 0;
         while cycles_elapsed <= cycles_to_run as usize {
             cycles_elapsed += cpu.step() as usize;
+            if DEBUG {
+                cpu.log();
+            }
         }
         cycles_elapsed_in_frame += cycles_elapsed;
         if cycles_elapsed_in_frame >= 70224 {
@@ -164,3 +174,10 @@ fn sdl2(cpu: &mut CPU, window: Window, sdl_context: sdl2::Sdl) {
         }
     }
 }
+
+// fn file_dialog() -> Option<PathBuf> {
+//     let file_path = FileDialog::new()
+//         .add_filter("Gameboy ROM", &["gb", "gbc"])
+//         .pick_file();
+//     return file_path;
+// }

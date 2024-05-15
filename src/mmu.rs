@@ -1,26 +1,14 @@
-use sdl2::keyboard::Mod;
-
-use super::interrupts::InterruptFlags;
-// use super::gpu::{Interrupt, PPU};
-use super::gpu::{
-    stat::Mode, BackgroundAndWindowDataSelect, InterruptRequest, ObjectSize, TileMap, GPU,
-};
-use super::timer::{Frequency, Timer};
 use crate::cartridge::CartridgeType;
+use crate::gpu::{stat::Mode, InterruptRequest, GPU};
+use crate::interrupts::InterruptFlags;
 use crate::joypad::Joypad;
-use crate::utils::bit;
-
-pub const BOOT_ROM_BEGIN: usize = 0x00;
-pub const BOOT_ROM_END: usize = 0xFF;
-pub const BOOT_ROM_SIZE: usize = BOOT_ROM_END - BOOT_ROM_BEGIN + 1;
+use crate::timer::{Frequency, Timer};
 
 pub const ROM_BANK_0_BEGIN: usize = 0x0000;
 pub const ROM_BANK_0_END: usize = 0x3FFF;
-pub const ROM_BANK_0_SIZE: usize = ROM_BANK_0_END - ROM_BANK_0_BEGIN + 1;
 
 pub const ROM_BANK_N_BEGIN: usize = 0x4000;
 pub const ROM_BANK_N_END: usize = 0x7FFF;
-pub const ROM_BANK_N_SIZE: usize = ROM_BANK_N_END - ROM_BANK_N_BEGIN + 1;
 
 pub const VRAM_BEGIN: usize = 0x8000;
 pub const VRAM_END: usize = 0x9FFF;
@@ -28,7 +16,6 @@ pub const VRAM_SIZE: usize = VRAM_END - VRAM_BEGIN + 1;
 
 pub const EXTERNAL_RAM_BEGIN: usize = 0xA000;
 pub const EXTERNAL_RAM_END: usize = 0xBFFF;
-pub const EXTERNAL_RAM_SIZE: usize = EXTERNAL_RAM_END - EXTERNAL_RAM_BEGIN + 1;
 
 pub const WORKING_RAM_BEGIN: usize = 0xC000;
 pub const WORKING_RAM_END: usize = 0xDFFF;
@@ -130,7 +117,6 @@ impl Memory {
             IO_REGISTERS_BEGIN..=IO_REGISTERS_END => self.read_io(address),
             HIGH_RAM_BEGIN..=HIGH_RAM_END => self.hram[address - HIGH_RAM_BEGIN],
             INTERRUPT_ENABLE => self.interrupt_enable.to_byte(),
-            // _ => self.mem[address],
             _ => 0,
         }
     }
@@ -163,12 +149,7 @@ impl Memory {
                 self.hram[address - HIGH_RAM_BEGIN] = value;
             }
             INTERRUPT_ENABLE => {
-                // println!("Interrupt enable: {:#04x}", value);
                 self.interrupt_enable.from_byte(value);
-                // println!(
-                //     "Interrupt enable register: {:#04b}",
-                //     self.interrupt_enable.to_byte()
-                // );
             }
             _ => {
                 panic!("Memory write not implemented: {:#06x}", address)
@@ -266,15 +247,12 @@ impl Memory {
                 }
             }
             0xFF47 => {
-                println!("BG Palette 0: {:#04x}", value);
                 self.gpu.set_bg_palette(value);
             }
             0xFF48 => {
-                println!("Palette 0: {:#04x}", value);
                 self.gpu.set_object_palette0(value);
             }
             0xFF49 => {
-                println!("Palette 1: {:#04x}", value);
                 self.gpu.set_object_palette1(value);
             }
             0xFF4A => {

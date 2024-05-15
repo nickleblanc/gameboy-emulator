@@ -1,6 +1,6 @@
 use crate::cartridge::{get_ram_size, Cartridge, CartridgeType};
 
-struct RealTimeClock {}
+// struct RealTimeClock {}
 pub struct MBC3 {
     cartridge: Cartridge,
 }
@@ -13,10 +13,10 @@ impl MBC3 {
             _ => false,
         };
         let ram_size = get_ram_size(&rom);
-        let has_timer = match cartridge_type {
-            0x0F | 0x10 => true,
-            _ => false,
-        };
+        // let has_timer = match cartridge_type {
+        //     0x0F | 0x10 => true,
+        //     _ => false,
+        // };
         MBC3 {
             cartridge: Cartridge::new(rom, has_ram, ram_size),
         }

@@ -44,22 +44,14 @@ impl CPU {
         }
     }
 
-    fn log(&self) {
+    pub fn log(&self) {
         let string = format!(
             "AF: {:04X?} BC: {:04X?} DE: {:04X?} HL: {:04X?} SP: {:04X?} PC: {:04X?} IME: {:?} INST: {:04X?} ({:02X?} {:02X?} {:02X?} {:02X?}) TMA: {:02X?}\n",
             self.registers.get_af(), self.registers.get_bc(), self.registers.get_de(), self.registers.get_hl(), self.sp, self.pc, self.ime, self.get_instruction(), self.mem.read_byte(self.pc.wrapping_add(1)), self.mem.read_byte(self.pc.wrapping_add(2)), self.mem.read_byte(self.pc.wrapping_add(3)), self.mem.read_byte(self.pc.wrapping_add(4)), self.mem.read_byte(0xFF06)
         );
-        // let string = format!("TMA: {:02X?}\n", self.mem.read_byte(0xFF06));
-
-        // let string = format!(
-        //     "GPU: {:?} EI: {:02X?} EF: {:02X?} HALT: {:?}\n",
-        //     self.mem.gpu.lcd_display_enabled,
-        //     self.mem.interrupt_enable.to_byte(),
-        //     self.mem.interrupt_flags.to_byte(),
-        //     self.is_halted
-        // );
 
         let mut file = OpenOptions::new()
+            .create(true)
             .write(true)
             .append(true)
             .open("log.txt")
@@ -75,16 +67,7 @@ impl CPU {
             self.mem.write_byte(0xFF02, 0);
         }
 
-        // self.log();
-
-        let mut instruction_byte = self.mem.read_byte(self.pc);
-
-        let prefixed = instruction_byte == 0xCB;
-        if prefixed {
-            instruction_byte = self.read_next_byte();
-        }
-
-        let instruction = Instruction::get_instruction(instruction_byte, prefixed);
+        let instruction = self.get_instruction();
         let (next_pc, mut cycles) = self.execute(instruction);
 
         self.mem.step(cycles);
@@ -1093,7 +1076,7 @@ impl CPU {
     }
 
     fn cp(&mut self, value: u8) {
-        let (result, overflow) = self.registers.a.overflowing_sub(value);
+        let result = self.registers.a.wrapping_sub(value);
         self.registers.f.z = result == 0;
         self.registers.f.n = true;
         self.registers.f.h = (self.registers.a & 0xF) < (value & 0xF);
@@ -1101,7 +1084,7 @@ impl CPU {
     }
 
     fn dec(&mut self, value: u8) -> u8 {
-        let (result, overflow) = value.overflowing_sub(1);
+        let result = value.wrapping_sub(1);
         self.registers.f.z = result == 0;
         self.registers.f.n = true;
         self.registers.f.h = (value & 0xF) == 0;
@@ -1109,7 +1092,7 @@ impl CPU {
     }
 
     fn dec_16bit(&mut self, value: u16) -> u16 {
-        let (result, overflow) = value.overflowing_sub(1);
+        let result = value.wrapping_sub(1);
         return result;
     }
 
@@ -1122,7 +1105,7 @@ impl CPU {
     }
 
     fn inc_16bit(&mut self, value: u16) -> u16 {
-        let (result, overflow) = value.overflowing_add(1);
+        let result = value.wrapping_add(1);
         return result;
     }
 
@@ -1192,7 +1175,6 @@ impl CPU {
     }
 
     fn rotate_left(&mut self, value: u8, set_zero: bool) -> u8 {
-        // let carry = (value & 0x80) >> 7;
         let new_value = value.rotate_left(1);
         self.registers.f.z = set_zero && new_value == 0;
         self.registers.f.n = false;
@@ -1228,7 +1210,6 @@ impl CPU {
     }
 
     fn rotate_right(&mut self, value: u8, set_zero: bool) -> u8 {
-        // let carry = (value & 0x80) >> 7;
         let new_value = value.rotate_right(1);
         self.registers.f.z = set_zero && new_value == 0;
         self.registers.f.n = false;
@@ -1281,7 +1262,7 @@ impl CPU {
     }
 
     fn sub(&mut self, value: u8) {
-        let (result, overflow) = self.registers.a.overflowing_sub(value);
+        let result = self.registers.a.wrapping_sub(value);
         self.registers.f.z = result == 0;
         self.registers.f.n = true;
         self.registers.f.h = (self.registers.a & 0xF) < (value & 0xF);

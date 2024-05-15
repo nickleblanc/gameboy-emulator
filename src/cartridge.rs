@@ -25,6 +25,7 @@ pub trait CartridgeType {
 pub fn new_cartridge(rom: Vec<u8>) -> Box<dyn CartridgeType> {
     let cartridge_type = rom[0x147];
     println!("Cartridge type: {:#04x}", cartridge_type);
+    println!("CGB: {:#04x}", rom[0x143]);
     match cartridge_type {
         0x00 => Box::new(RomOnlyCartridge::new(rom)),
         0x01..=0x03 => Box::new(MBC1::new(rom)),
