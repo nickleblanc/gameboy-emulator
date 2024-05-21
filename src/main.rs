@@ -29,11 +29,13 @@ const SCREEN_HEIGHT: u32 = 144;
 const WINDOW_WIDTH: u32 = SCREEN_WIDTH * SCALE;
 const WINDOW_HEIGHT: u32 = SCREEN_HEIGHT * SCALE;
 
-const DEBUG: bool = false;
+const DEBUG: bool = true;
 
 fn main() {
-    let mut rom = File::open("./test-roms/Pokemon - Red.gb").expect("failed to open file");
-    // let mut rom = File::open("./test-roms/Pokemon - Silver.gbc").expect("failed to open file");
+    // let mut rom = File::open("./test-roms/Pokemon - Red.gb").expect("failed to open file");
+    let mut rom = File::open("./test-roms/Pokemon - Silver.gbc").expect("failed to open file");
+    // let mut rom = File::open("./test-roms/Pokemon - Crystal.gbc").expect("failed to open file");
+    // let mut rom = File::open("./test-roms/Wario Land 3.gbc").expect("failed to open file");
     // let mut rom = File::open("./test-roms/Pocket Monsters - Aka.gb").expect("failed to open file");
 
     let (window, sdl_context) = initialize_sdl2();
@@ -42,6 +44,7 @@ fn main() {
     // File::open("./test-roms/Dr. Mario (World) (Rev 1).gb").expect("failed to open file");
     // let mut rom = File::open("./test-roms/dmg-acid2.gb").expect("failed to open file");
     // let mut rom = File::open("./test-roms/cgb-acid2.gbc").expect("failed to open file");
+    // let mut rom = File::open("./test-roms/cgb_boot.bin").expect("failed to open file");
     // let mut rom = File::open("./test-roms/Tetris.gb").expect("failed to open file");
     // let mut rom = File::open("./test-roms/cpu_instrs.gb").expect("failed to open file");
 
@@ -147,7 +150,8 @@ fn sdl2(cpu: &mut CPU, window: Window, sdl_context: sdl2::Sdl) {
         while cycles_elapsed <= cycles_to_run as usize {
             cycles_elapsed += cpu.step() as usize;
             if DEBUG {
-                cpu.log();
+                // cpu.log();
+                // println!("line: {}", cpu.mem.gpu.line)
             }
         }
         cycles_elapsed_in_frame += cycles_elapsed;

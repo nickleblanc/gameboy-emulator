@@ -12,14 +12,14 @@ pub struct Lcdc {
 impl Lcdc {
     pub fn new() -> Lcdc {
         Lcdc {
-            display_enabled: false,
+            display_enabled: true,
             window_tile_map: false,
             window_display_enabled: false,
-            bg_window_tile_data: false,
+            bg_window_tile_data: true,
             bg_tile_map: false,
             sprite_size: false,
             object_display_enabled: false,
-            bg_window_enabled: false,
+            bg_window_enabled: true,
         }
     }
 

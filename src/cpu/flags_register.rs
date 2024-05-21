@@ -18,8 +18,8 @@ impl FlagsRegister {
         FlagsRegister {
             z: true,
             n: false,
-            h: true,
-            c: true,
+            h: false,
+            c: false,
         }
     }
 }

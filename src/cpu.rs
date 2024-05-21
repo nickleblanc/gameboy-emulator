@@ -46,8 +46,8 @@ impl CPU {
 
     pub fn log(&self) {
         let string = format!(
-            "AF: {:04X?} BC: {:04X?} DE: {:04X?} HL: {:04X?} SP: {:04X?} PC: {:04X?} IME: {:?} INST: {:04X?} ({:02X?} {:02X?} {:02X?} {:02X?}) TMA: {:02X?}\n",
-            self.registers.get_af(), self.registers.get_bc(), self.registers.get_de(), self.registers.get_hl(), self.sp, self.pc, self.ime, self.get_instruction(), self.mem.read_byte(self.pc.wrapping_add(1)), self.mem.read_byte(self.pc.wrapping_add(2)), self.mem.read_byte(self.pc.wrapping_add(3)), self.mem.read_byte(self.pc.wrapping_add(4)), self.mem.read_byte(0xFF06)
+            "AF: {:04X?} BC: {:04X?} DE: {:04X?} HL: {:04X?} SP: {:04X?} PC: {:04X?} IME: {:?} INST: {:04X?} ({:02X?} {:02X?} {:02X?} {:02X?}) HL: {:02X?}\n",
+            self.registers.get_af(), self.registers.get_bc(), self.registers.get_de(), self.registers.get_hl(), self.sp, self.pc, self.ime, self.get_instruction(), self.mem.read_byte(self.pc.wrapping_add(1)), self.mem.read_byte(self.pc.wrapping_add(2)), self.mem.read_byte(self.pc.wrapping_add(3)), self.mem.read_byte(self.pc.wrapping_add(4)), self.mem.read_byte(self.registers.get_hl())
         );
 
         let mut file = OpenOptions::new()

@@ -20,6 +20,22 @@ pub enum Color {
     DarkGray = 96,
     Black = 0,
 }
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub struct Pixel {
+    r: u8,
+    g: u8,
+    b: u8,
+}
+
+impl Default for Pixel {
+    fn default() -> Self {
+        Pixel {
+            r: 255,
+            g: 255,
+            b: 255,
+        }
+    }
+}
 
 impl std::convert::From<u8> for Color {
     fn from(n: u8) -> Self {
@@ -29,6 +45,17 @@ impl std::convert::From<u8> for Color {
             2 => Color::DarkGray,
             3 => Color::Black,
             _ => panic!("Cannot convert {} to color", n),
+        }
+    }
+}
+
+impl std::convert::From<Color> for u8 {
+    fn from(color: Color) -> Self {
+        match color {
+            Color::White => 0,
+            Color::LightGray => 1,
+            Color::DarkGray => 2,
+            Color::Black => 3,
         }
     }
 }
@@ -57,6 +84,8 @@ pub struct ObjectData {
     xflip: bool,
     yflip: bool,
     priority: bool,
+    cgb_palette: u8,
+    bank: bool,
 }
 
 impl Default for ObjectData {
@@ -69,6 +98,22 @@ impl Default for ObjectData {
             xflip: Default::default(),
             yflip: Default::default(),
             priority: Default::default(),
+            cgb_palette: Default::default(),
+            bank: Default::default(),
+        }
+    }
+}
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub struct BackgroundPriority {
+    pub priority: bool,
+    pub color: PriorityFlag,
+}
+
+impl Default for BackgroundPriority {
+    fn default() -> Self {
+        BackgroundPriority {
+            priority: false,
+            color: PriorityFlag::None,
         }
     }
 }
@@ -108,7 +153,7 @@ impl InterruptRequest {
     }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 enum PriorityFlag {
     None,
     Color0,
@@ -126,6 +171,7 @@ pub struct GPU {
     pub object_data: [ObjectData; NUMBER_OF_OBJECTS],
     #[cfg_attr(feature = "serialize", serde(skip_serializing))]
     pub vram: [u8; VRAM_SIZE],
+    pub vram1: [u8; VRAM_SIZE],
     #[cfg_attr(feature = "serialize", serde(skip_serializing))]
     pub oam: [u8; OAM_SIZE],
     pub background_colors: BackgroundColors,
@@ -139,9 +185,23 @@ pub struct GPU {
     pub lcdc: Lcdc,
     pub stat: Stat,
     wly: u8,
-    bg_priority_map: [PriorityFlag; 65792],
+    bg_priority_map: [BackgroundPriority; 65536],
     sprite_palette0: [Color; 4],
     sprite_palette1: [Color; 4],
+    bg_map_attributes0: [u8; 1024],
+    bg_map_attributes1: [u8; 1024],
+    pub bgpi: u8,
+    pub bgpd: u8,
+    pub obpi: u8,
+    pub obpd: u8,
+    pub bg_palette: [u8; 64],
+    pub palettes_bg: [[Pixel; 4]; 8],
+    pub object_palette: [u8; 64],
+    pub palettes_object: [[Pixel; 4]; 8],
+    pub auto_increment_bg: bool,
+    pub auto_increment_object: bool,
+    pub vram_bank: u8,
+    pub speed: u8,
 }
 
 impl GPU {
@@ -150,6 +210,7 @@ impl GPU {
             canvas_buffer: [0; SCREEN_WIDTH * SCREEN_HEIGHT * 4],
             object_data: [Default::default(); NUMBER_OF_OBJECTS],
             vram: [0; VRAM_SIZE],
+            vram1: [0; VRAM_SIZE],
             oam: [0; OAM_SIZE],
             background_colors: BackgroundColors::from(0xFC),
             line_check: 0,
@@ -162,14 +223,65 @@ impl GPU {
             lcdc: Lcdc::new(),
             stat: Stat::new(),
             wly: 0,
-            bg_priority_map: [PriorityFlag::None; 65792],
+            bg_priority_map: [Default::default(); 65536],
             sprite_palette0: [Color::Black; 4],
             sprite_palette1: [Color::White; 4],
+            bg_map_attributes0: [0; 1024],
+            bg_map_attributes1: [0; 1024],
+            bgpi: 0,
+            bgpd: 0,
+            obpi: 0,
+            obpd: 0,
+            bg_palette: [0xFF; 64],
+            palettes_bg: [[Default::default(); 4]; 8],
+            object_palette: [0xFF; 64],
+            palettes_object: [[Default::default(); 4]; 8],
+            auto_increment_bg: false,
+            auto_increment_object: false,
+            vram_bank: 0,
+            speed: 0x7E,
         }
     }
 
     pub fn write_vram(&mut self, index: usize, value: u8) {
-        self.vram[index] = value;
+        // self.vram[index] = value;
+        // println!("index: {:#04x}", index);
+        // println!("vram_bank: {:#04x}", self.vram_bank);
+        if self.vram_bank == 1 {
+            // println!("vram1: {:#04x}", value);
+            match index {
+                0x0000..=0x17FF => {
+                    self.vram1[index] = value;
+                }
+                0x1800..=0x1BFF => {
+                    let addr = index - 0x1800;
+                    self.bg_map_attributes0[addr] = value;
+                }
+                0x1C00..=0x1FFF => {
+                    let addr = index - 0x1C00;
+                    self.bg_map_attributes1[addr] = value;
+                }
+                _ => panic!("Invalid VRAM address: {:#04x}", index),
+            }
+        } else {
+            self.vram[index] = value;
+        }
+    }
+
+    pub fn read_vram(&self, index: usize) -> u8 {
+        // println!("index: {:#04x}", index);
+        if self.vram_bank == 1 {
+            // println!("vram1: {:#04x}", self.vram1[index]);
+            match index {
+                0x0000..=0x17FF => self.vram1[index],
+                0x1800..=0x1BFF => self.bg_map_attributes0[index - 0x1800],
+                0x1C00..=0x1FFF => self.bg_map_attributes1[index - 0x1C00],
+                _ => panic!("Invalid VRAM address: {:#04x}", index),
+            }
+        } else {
+            // println!("vram: {:#04x}", self.vram[index]);
+            self.vram[index]
+        }
     }
 
     pub fn write_oam(&mut self, index: usize, value: u8) {
@@ -200,29 +312,97 @@ impl GPU {
 
     pub fn get_bg_palette(&self) -> u8 {
         let mut value = 0;
-        value |= self.background_colors.0 as u8;
-        value |= (self.background_colors.1 as u8) << 2;
-        value |= (self.background_colors.2 as u8) << 4;
-        value |= (self.background_colors.3 as u8) << 6;
+        value |= u8::from(self.background_colors.0);
+        value |= u8::from(self.background_colors.1) << 2;
+        value |= u8::from(self.background_colors.2) << 4;
+        value |= u8::from(self.background_colors.3) << 6;
         value
     }
 
     pub fn get_object_palette0(&self) -> u8 {
         let mut value = 0;
-        value |= self.sprite_palette0[0] as u8;
-        value |= (self.sprite_palette0[1] as u8) << 2;
-        value |= (self.sprite_palette0[2] as u8) << 4;
-        value |= (self.sprite_palette0[3] as u8) << 6;
+        value |= u8::from(self.sprite_palette0[0]);
+        value |= u8::from(self.sprite_palette0[1]) << 2;
+        value |= u8::from(self.sprite_palette0[2]) << 4;
+        value |= u8::from(self.sprite_palette0[3]) << 6;
         value
     }
 
     pub fn get_object_palette1(&self) -> u8 {
         let mut value = 0;
-        value |= self.sprite_palette1[0] as u8;
-        value |= (self.sprite_palette1[1] as u8) << 2;
-        value |= (self.sprite_palette1[2] as u8) << 4;
-        value |= (self.sprite_palette1[3] as u8) << 6;
+        value |= u8::from(self.sprite_palette1[0]);
+        value |= u8::from(self.sprite_palette1[1]) << 2;
+        value |= u8::from(self.sprite_palette1[2]) << 4;
+        value |= u8::from(self.sprite_palette1[3]) << 6;
         value
+    }
+
+    pub fn set_cgb_bg_palette(&mut self, value: u8) {
+        self.bg_palette[self.bgpi as usize] = value;
+
+        let palette_number = self.bgpi / 8;
+        let color_index = (self.bgpi as usize % 8) / 2;
+
+        // if palette_number == 0 {
+        //     println!("color_index: {:#04x}", color_index);
+        //     println!("bgpi: {:#04x}", self.bgpi);
+        //     println!("value: {:#04x}", value);
+        // }
+
+        let palette = &mut self.palettes_bg[palette_number as usize];
+
+        // if self.debug < 50 {
+        //     println!("bg_palette: {:?}", palette);
+        //     self.debug += 1;
+        // }
+        // println!("palette_number: {:?}", palette);
+
+        let palette_offset = (palette_number * 8) as usize;
+        let color_offset = (color_index * 2) as usize;
+
+        let color = rgb555_to_rgb888(
+            self.bg_palette[palette_offset + color_offset],
+            self.bg_palette[palette_offset + color_offset + 1],
+        );
+        palette[color_index as usize] = color;
+        // println!("palette: {:?}", self.palettes_bg[0]);
+        // if palette_number == 0 && color_index == 3 {
+        //     println!(
+        //         "first: {:#04x}",
+        //         self.bg_palette[palette_number * 8 + color_index * 2]
+        //     );
+        //     println!(
+        //         "second: {:#04x}",
+        //         self.bg_palette[palette_number * 8 + color_index * 2 + 1]
+        //     );
+        // }
+        // self.palettes_bg[0][0] = Pixel { r: 0, g: 0, b: 0 };
+
+        if self.auto_increment_bg {
+            self.bgpi = (self.bgpi + 1) & 0x3F;
+        }
+    }
+
+    pub fn set_cgb_object_palette(&mut self, value: u8) {
+        self.object_palette[self.obpi as usize] = value;
+
+        let palette_number = self.obpi as usize / 8;
+
+        let palette = &mut self.palettes_object[palette_number];
+        let color_index = (self.obpi as usize % 8) / 2;
+
+        let palette_offset = (palette_number * 8) as usize;
+        let color_offset = (color_index * 2) as usize;
+
+        let color = rgb555_to_rgb888(
+            self.object_palette[palette_offset + color_offset],
+            self.object_palette[palette_offset + color_offset + 1],
+        );
+        palette[color_index as usize] = color;
+        // println!("palette: {:?}", self.palettes_object[palette_number]);
+        if self.auto_increment_object {
+            self.obpi = (self.obpi + 1) & 0x3F;
+        }
     }
 
     pub fn step(&mut self, cycles: u8) -> InterruptRequest {
@@ -244,7 +424,7 @@ impl GPU {
                             request.add(InterruptRequest::LCDStat)
                         }
                         request.add(InterruptRequest::VBlank);
-                        self.bg_priority_map = [PriorityFlag::None; 65792];
+                        self.bg_priority_map = [Default::default(); 65536];
                     } else {
                         self.stat.mode = Mode::OAMAccess;
                         if self.stat.oam_interrupt {
@@ -298,17 +478,17 @@ impl GPU {
     }
 
     fn render_scan_line(&mut self) {
-        if self.lcdc.bg_window_enabled {
-            self.render_background_line();
-        } else {
-            for x in 0..SCREEN_WIDTH {
-                let canvas_buffer_offset = (x * 4) + (self.line as usize * SCREEN_WIDTH * 4);
-                self.canvas_buffer[canvas_buffer_offset] = 255;
-                self.canvas_buffer[canvas_buffer_offset + 1] = 255;
-                self.canvas_buffer[canvas_buffer_offset + 2] = 255;
-                self.canvas_buffer[canvas_buffer_offset + 3] = 255;
-            }
-        }
+        // if self.lcdc.bg_window_enabled {
+        self.render_background_line();
+        // } else {
+        // for x in 0..SCREEN_WIDTH {
+        //     let canvas_buffer_offset = (x * 4) + (self.line as usize * SCREEN_WIDTH * 4);
+        //     self.canvas_buffer[canvas_buffer_offset] = 255;
+        //     self.canvas_buffer[canvas_buffer_offset + 1] = 255;
+        //     self.canvas_buffer[canvas_buffer_offset + 2] = 255;
+        //     self.canvas_buffer[canvas_buffer_offset + 3] = 255;
+        // }
+        // }
 
         if self.lcdc.window_display_enabled {
             self.render_window_line();
@@ -333,16 +513,74 @@ impl GPU {
 
             let y_address_offset = (tile_y_index % 8 * 2) as u16;
 
+            let map_offset = if self.lcdc.bg_tile_map {
+                0x9C00
+            } else {
+                0x9800
+            };
+
+            let bg_map_attributes = if self.lcdc.bg_tile_map {
+                self.bg_map_attributes1
+            } else {
+                self.bg_map_attributes0
+            };
+
+            let bg_attributes = bg_map_attributes[(tile_address - map_offset) as usize];
+
+            let pixel_index = if bg_attributes & 0x20 != 0 {
+                7 - pixel_index
+            } else {
+                pixel_index
+            };
+
+            let y_address_offset = if bg_attributes & 0x40 != 0 {
+                ((7 - (tile_y_index % 8)) * 2) as u16
+            } else {
+                y_address_offset
+            };
+
+            let palette = bg_attributes & 0x07;
+
+            let palette_row = self.palettes_bg[palette as usize];
+
+            let vram_bank = bg_attributes & 0x08 != 0;
+
+            let vram = if vram_bank { self.vram1 } else { self.vram };
+
+            let priority = bg_attributes & 0x80 != 0;
+
             let tile_data_address = tile + y_address_offset;
 
-            let tile_data = self.vram[tile_data_address as usize];
-            let tile_color_data = self.vram[tile_data_address as usize + 1];
+            let tile_data = vram[tile_data_address as usize];
+            let tile_color_data = vram[tile_data_address as usize + 1];
 
             let color_index = get_color_index(tile_data, tile_color_data, pixel_index);
-            let color = self.get_background_color(color_index);
+            let color = palette_row[color_index as usize];
 
-            if color == self.background_colors.0 {
-                self.bg_priority_map[self.line as usize + 256 * x as usize] = PriorityFlag::Color0;
+            // if tile_address == 0x9825 {
+            //     println!("tile: {:#04x}", tile_number);
+            //     println!("palette: {:?}", palette_row);
+            //     println!("bg_attributes: {:#04x}", bg_attributes);
+            //     println!("color_index: {:#04x}", color_index);
+            //     println!("color: {:?}", color);
+            // }
+
+            /*
+            UPDATE BACKGROUND PRIORITY MAP HERE
+             */
+
+            // if color == self.background_colors.0 {
+            //     self.bg_priority_map[self.line as usize + 256 * x as usize] = PriorityFlag::Color0;
+            // }
+
+            if color == palette_row[0] {
+                self.bg_priority_map[self.line as usize + 256 * x as usize].color =
+                    PriorityFlag::Color0;
+                self.bg_priority_map[self.line as usize + 256 * x as usize].priority = priority;
+            } else {
+                self.bg_priority_map[self.line as usize + 256 * x as usize].color =
+                    PriorityFlag::None;
+                self.bg_priority_map[self.line as usize + 256 * x as usize].priority = priority;
             }
 
             self.draw_pixel_to_buffer(x as usize, self.line as usize, color);
@@ -370,13 +608,59 @@ impl GPU {
 
             let y_address_offset = ((self.wly) % 8 * 2) as u16;
 
+            let map_offset = if self.lcdc.window_tile_map {
+                0x9C00
+            } else {
+                0x9800
+            };
+
+            let window_map_attributes = if self.lcdc.window_tile_map {
+                self.bg_map_attributes1
+            } else {
+                self.bg_map_attributes0
+            };
+
+            let bg_attributes = window_map_attributes[(tile_address - map_offset) as usize];
+
+            let pixel_index = if bg_attributes & 0x20 != 0 {
+                7 - pixel_index
+            } else {
+                pixel_index
+            };
+
+            let y_address_offset = if bg_attributes & 0x40 != 0 {
+                ((7 - (self.wly % 8)) * 2) as u16
+            } else {
+                y_address_offset
+            };
+
+            let palette = bg_attributes & 0x07;
+
+            let palette_row = self.palettes_bg[palette as usize];
+
+            let vram_bank = bg_attributes & 0x08 != 0;
+
+            let vram = if vram_bank { self.vram1 } else { self.vram };
+
             let tile_data_address = tile + y_address_offset;
 
-            let tile_data = self.vram[tile_data_address as usize];
-            let tile_color_data = self.vram[tile_data_address as usize + 1];
+            let tile_data = vram[tile_data_address as usize];
+            let tile_color_data = vram[tile_data_address as usize + 1];
 
             let color_index = get_color_index(tile_data, tile_color_data, pixel_index);
-            let color = self.get_background_color(color_index);
+            let color = palette_row[color_index as usize];
+
+            if color == palette_row[0] {
+                self.bg_priority_map[self.line as usize + 256 * x as usize].color =
+                    PriorityFlag::Color0;
+                self.bg_priority_map[self.line as usize + 256 * x as usize].priority =
+                    bg_attributes & 0x80 != 0;
+            } else {
+                self.bg_priority_map[self.line as usize + 256 * x as usize].color =
+                    PriorityFlag::None;
+                self.bg_priority_map[self.line as usize + 256 * x as usize].priority =
+                    bg_attributes & 0x80 != 0;
+            }
 
             self.draw_pixel_to_buffer(x as usize, self.line as usize, color);
         }
@@ -395,8 +679,12 @@ impl GPU {
 
             let tile_address = object.tile as u16 * 16;
 
-            let tile_data = self.vram[tile_address as usize + (line_offset * 2) as usize];
-            let tile_color_data = self.vram[tile_address as usize + (line_offset * 2) as usize + 1];
+            let vram_bank = object.bank;
+
+            let vram = if vram_bank { self.vram1 } else { self.vram };
+
+            let tile_data = vram[tile_address as usize + (line_offset * 2) as usize];
+            let tile_color_data = vram[tile_address as usize + (line_offset * 2) as usize + 1];
 
             for x in 0..8 {
                 let x_offset = object.x + x as i16;
@@ -409,15 +697,18 @@ impl GPU {
 
                 let color_index = get_color_index(tile_data, tile_color_data, pixel_index);
 
-                let object_palette = if object.palette == ObjectPalette::One {
-                    self.sprite_palette1
-                } else {
-                    self.sprite_palette0
-                };
+                // let object_palette = if object.palette == ObjectPalette::One {
+                //     self.sprite_palette1
+                // } else {
+                //     self.sprite_palette0
+                // };
+
+                let object_palette = object.cgb_palette;
+                let palette = self.palettes_object[object_palette as usize];
 
                 if color_index != 0 {
                     let offset = self.line as usize + 256 * x_offset as usize;
-                    let color = object_palette[color_index as usize];
+                    let color = palette[color_index as usize];
 
                     if !self.background_has_priority(object.priority, offset) {
                         self.draw_pixel_to_buffer(x_offset as usize, self.line as usize, color);
@@ -455,10 +746,12 @@ impl GPU {
                     xflip: options & 0x20 != 0,
                     yflip: options & 0x40 != 0,
                     priority: options & 0x80 != 0,
+                    cgb_palette: options & 0x07,
+                    bank: options & 0x08 != 0,
                 });
             }
         }
-        objects.sort_by_key(|object| object.x);
+        // objects.sort_by_key(|object| object.x);
         objects
     }
 
@@ -466,12 +759,17 @@ impl GPU {
         // if !priority {
         //     return false;
         // }
+        // println!("priority: {:#04x}", _priority as u8);
 
-        // match self.bg_priority_map[offset] {
-        //     PriorityFlag::None => true,
-        //     PriorityFlag::Color0 => false,
-        // }
-        return false;
+        if self.bg_priority_map[_offset].color == PriorityFlag::Color0 {
+            return false;
+        } else if !self.lcdc.bg_window_enabled {
+            return false;
+        } else if !_priority && !self.bg_priority_map[_offset].priority {
+            return false;
+        } else {
+            return true;
+        }
     }
 
     fn calculate_window_address(&self, y: u8, x: u8) -> u16 {
@@ -512,12 +810,12 @@ impl GPU {
         }
     }
 
-    fn draw_pixel_to_buffer(&mut self, x: usize, y: usize, color: Color) {
+    fn draw_pixel_to_buffer(&mut self, x: usize, y: usize, pixel: Pixel) {
         let canvas_buffer_offset = (x * 4) + (y * SCREEN_WIDTH * 4);
 
-        self.canvas_buffer[canvas_buffer_offset] = color as u8;
-        self.canvas_buffer[canvas_buffer_offset + 1] = color as u8;
-        self.canvas_buffer[canvas_buffer_offset + 2] = color as u8;
+        self.canvas_buffer[canvas_buffer_offset] = pixel.r as u8;
+        self.canvas_buffer[canvas_buffer_offset + 1] = pixel.g as u8;
+        self.canvas_buffer[canvas_buffer_offset + 2] = pixel.b as u8;
         self.canvas_buffer[canvas_buffer_offset + 3] = 255;
     }
 }
@@ -536,4 +834,21 @@ fn get_color_index(tile_data: u8, tile_color_data: u8, pixel_index: u8) -> u8 {
     } else {
         0
     }) << 1
+}
+
+pub fn rgb555_to_rgb888(first: u8, second: u8) -> Pixel {
+    // println!("first: {:#04x}, second: {:#04x}", first, second);
+    let r_5 = (first & 0x1F);
+    let g_5 = ((first >> 5) | ((second & 0x03) << 3));
+    let b_5 = (second >> 2);
+    // println!("r: {:#04x}, g: {:#04x}, b: {:#04x}", r, g, b);
+
+    let r = (r_5 << 3) | (r_5 >> 2);
+    let g = (g_5 << 3) | (g_5 >> 2);
+    let b = (b_5 << 3) | (b_5 >> 2);
+    if second == 0x78 {
+        println!("first: {:#04x}, second: {:#04x}", first, second);
+        println!("r: {:#04x}, g: {:#04x}, b: {:#04x}", r, g, b);
+    }
+    Pixel { r, g, b }
 }

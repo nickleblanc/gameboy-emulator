@@ -47,7 +47,8 @@ const LCD_STAT: usize = 0xFF41;
 const INTERRUPT_ENABLE: usize = 0xFFFF;
 
 pub struct Memory {
-    wram: [u8; WORKING_RAM_SIZE],
+    wram0: [u8; 4096],
+    wramn: [[u8; 4096]; 7],
     hram: [u8; HIGH_RAM_SIZE],
     pub interrupt_enable: InterruptFlags,
     pub interrupt_flags: InterruptFlags,
@@ -56,6 +57,8 @@ pub struct Memory {
     pub gpu: GPU,
     cartridge: Box<dyn CartridgeType>,
     pub joypad: Joypad,
+    key0: u8,
+    wram_bank: u8,
 }
 
 impl Memory {
@@ -63,7 +66,8 @@ impl Memory {
         let mut divider = Timer::new(Frequency::F16384);
         divider.enabled = true;
         Memory {
-            wram: [0; WORKING_RAM_SIZE],
+            wram0: [0; 4096],
+            wramn: [[0; 4096]; 7],
             hram: [0; HIGH_RAM_SIZE],
             interrupt_enable: InterruptFlags::new(),
             interrupt_flags: InterruptFlags::new(),
@@ -72,6 +76,8 @@ impl Memory {
             gpu: GPU::new(),
             cartridge,
             joypad: Joypad::new(),
+            key0: 0,
+            wram_bank: 1,
         }
     }
 
@@ -109,10 +115,16 @@ impl Memory {
         match address {
             ROM_BANK_0_BEGIN..=ROM_BANK_0_END => self.cartridge.read(address as u16),
             ROM_BANK_N_BEGIN..=ROM_BANK_N_END => self.cartridge.read(address as u16),
-            VRAM_BEGIN..=VRAM_END => self.gpu.vram[address - VRAM_BEGIN],
+            VRAM_BEGIN..=VRAM_END => self.gpu.read_vram(address - VRAM_BEGIN),
             EXTERNAL_RAM_BEGIN..=EXTERNAL_RAM_END => self.cartridge.read_ram(address as u16),
-            WORKING_RAM_BEGIN..=WORKING_RAM_END => self.wram[address - WORKING_RAM_BEGIN],
-            ECHO_RAM_BEGIN..=ECHO_RAM_END => self.wram[address - ECHO_RAM_BEGIN],
+            WORKING_RAM_BEGIN..=0xCFFF => {
+                // println!("WRAM Bank: {:#04x}", self.wram_bank);
+                self.wram0[address - WORKING_RAM_BEGIN]
+            }
+            0xD000..=0xDFFF => self.wramn[self.wram_bank as usize - 1][address - 0xD000],
+            // 0xD000..=0xDFFF => 0x00,
+            ECHO_RAM_BEGIN..=0xEFFF => self.wram0[address - ECHO_RAM_BEGIN],
+            0xF000..=0xFDFF => self.wramn[self.wram_bank as usize - 1][address - 0xF000],
             OAM_BEGIN..=OAM_END => self.gpu.oam[address - OAM_BEGIN],
             IO_REGISTERS_BEGIN..=IO_REGISTERS_END => self.read_io(address),
             HIGH_RAM_BEGIN..=HIGH_RAM_END => self.hram[address - HIGH_RAM_BEGIN],
@@ -137,8 +149,11 @@ impl Memory {
             EXTERNAL_RAM_BEGIN..=EXTERNAL_RAM_END => {
                 self.cartridge.write_ram(address as u16, value);
             }
-            WORKING_RAM_BEGIN..=WORKING_RAM_END => {
-                self.wram[address - WORKING_RAM_BEGIN] = value;
+            WORKING_RAM_BEGIN..=0xCFFF => {
+                self.wram0[address - WORKING_RAM_BEGIN] = value;
+            }
+            0xD000..=0xDFFF => {
+                self.wramn[self.wram_bank as usize - 1][address - 0xD000] = value;
             }
             OAM_BEGIN..=OAM_END => {
                 self.gpu.write_oam(address - OAM_BEGIN, value);
@@ -183,11 +198,53 @@ impl Memory {
             0xFF43 => self.gpu.scroll_x,
             0xFF44 => self.gpu.line,
             0xFF45 => self.gpu.line_check,
-            0xFF47 => self.gpu.get_bg_palette(),
-            0xFF48 => self.gpu.get_object_palette0(),
-            0xFF49 => self.gpu.get_object_palette1(),
+            0xFF46 => 0,
+            0xFF47 => {
+                self.gpu.get_bg_palette()
+                // println!("BG Palette: {:#04x}", self.gpu.get_bg_palette());
+                // 0xFC
+            }
+            0xFF48 => {
+                self.gpu.get_object_palette0()
+                // 0xFF
+            }
+            0xFF49 => {
+                self.gpu.get_object_palette1()
+                // 0xFF
+            }
             0xFF4A => self.gpu.window_y,
             0xFF4B => self.gpu.window_x,
+            0xFF4C => {
+                println!("Key0: {:#04x}", self.key0);
+                self.key0
+            }
+            0xFF4D => {
+                // println!("Speed: {:#04x}", self.gpu.speed);
+                self.gpu.speed
+            }
+            0xFF4F => {
+                // println!("VRAM Bank: {:#04x}", self.gpu.vram_bank);
+                return self.gpu.vram_bank | 0xFE;
+            }
+            0xFF68 => {
+                self.gpu.bgpi
+                    | if self.gpu.auto_increment_bg {
+                        0x80
+                    } else {
+                        0x00
+                    }
+            }
+            0xFF69 => self.gpu.bg_palette[self.gpu.bgpi as usize],
+            0xFF6A => {
+                self.gpu.obpi
+                    | if self.gpu.auto_increment_object {
+                        0x80
+                    } else {
+                        0x00
+                    }
+            }
+            0xFF6B => self.gpu.object_palette[self.gpu.obpi as usize],
+            0xFF70 => self.wram_bank,
             // _ => panic!("IO register not implemented: {:#06x}", address),
             _ => 0,
         }
@@ -253,6 +310,7 @@ impl Memory {
                 self.gpu.set_object_palette0(value);
             }
             0xFF49 => {
+                // println!("Object Palette 1: {:#04x}", value);
                 self.gpu.set_object_palette1(value);
             }
             0xFF4A => {
@@ -260,6 +318,44 @@ impl Memory {
             }
             0xFF4B => {
                 self.gpu.window_x = value;
+            }
+            0xFF4C => {
+                println!("Key0: {:#04x}", value);
+                self.key0 = value;
+            }
+            0xFF4F => {
+                self.gpu.vram_bank = value & 0x01;
+                println!("VRAM Bank: {:#04x}", value);
+            }
+            0xFF4D => {
+                // self.gpu.speed = value;
+                println!("Speed: {:#04x}", value)
+            }
+            0xFF68 => {
+                self.gpu.bgpi = value & 0x3f;
+                self.gpu.auto_increment_bg = value & 0x80 != 0;
+                // println!("BGPI: {:#04x}", value)
+            }
+            0xFF69 => {
+                self.gpu.set_cgb_bg_palette(value);
+                // println!("BGPD: {:#04x}", value)
+            }
+            0xFF6A => {
+                self.gpu.obpi = value & 0x3f;
+                self.gpu.auto_increment_object = value & 0x80 != 0;
+                // println!("OBPI: {:#04x}", value)
+            }
+            0xFF6B => {
+                self.gpu.set_cgb_object_palette(value);
+                // println!("OBPD: {:#04x}", value)
+            }
+            0xFF70 => {
+                if value == 0 {
+                    self.wram_bank = 1;
+                } else {
+                    self.wram_bank = value & 0x07;
+                }
+                // println!("WRAM Bank: {:#04x}", value);
             }
             _ => {
                 // panic!("IO register not implemented: {:#06x}", address);
