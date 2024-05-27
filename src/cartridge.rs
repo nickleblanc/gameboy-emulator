@@ -13,6 +13,7 @@ pub struct Cartridge {
     pub rom_bank: u8,
     pub mode: u8,
     pub ram_enabled: bool,
+    pub cgb_flag: u8,
 }
 
 pub trait CartridgeType {
@@ -20,6 +21,7 @@ pub trait CartridgeType {
     fn write(&mut self, address: u16, value: u8);
     fn read_ram(&self, address: u16) -> u8;
     fn write_ram(&mut self, address: u16, value: u8);
+    fn get_cgb_flag(&self) -> u8;
 }
 
 pub fn new_cartridge(rom: Vec<u8>) -> Box<dyn CartridgeType> {
@@ -57,6 +59,8 @@ impl Cartridge {
         } else {
             None
         };
+
+        let cgb_flag = rom[0x143];
         Cartridge {
             rom,
             ram,
@@ -64,6 +68,7 @@ impl Cartridge {
             rom_bank: 1,
             mode: 0,
             ram_enabled: false,
+            cgb_flag,
         }
     }
 
@@ -104,5 +109,9 @@ impl Cartridge {
         if let Some(ref mut ram) = self.ram {
             ram[address as usize - 0xA000 + offset] = value;
         }
+    }
+
+    pub fn get_cgb_flag(&self) -> u8 {
+        self.cgb_flag
     }
 }

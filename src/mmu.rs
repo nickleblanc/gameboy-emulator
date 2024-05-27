@@ -1,5 +1,7 @@
+use std::f32::consts::E;
+
 use crate::cartridge::CartridgeType;
-use crate::gpu::{stat::Mode, InterruptRequest, GPU};
+use crate::gpu::{stat::Mode, GameBoyMode, InterruptRequest, GPU};
 use crate::interrupts::InterruptFlags;
 use crate::joypad::Joypad;
 use crate::timer::{Frequency, Timer};
@@ -46,6 +48,12 @@ const INTERRUPT_FLAG: usize = 0xFF0F;
 const LCD_STAT: usize = 0xFF41;
 const INTERRUPT_ENABLE: usize = 0xFFFF;
 
+#[derive(Debug, PartialEq)]
+enum DmaMode {
+    GDMA,
+    HDMA,
+}
+
 pub struct Memory {
     wram0: [u8; 4096],
     wramn: [[u8; 4096]; 7],
@@ -59,12 +67,40 @@ pub struct Memory {
     pub joypad: Joypad,
     key0: u8,
     wram_bank: u8,
+    boot_rom: Vec<u8>,
+    pub boot_active: bool,
+    dma_source: u16,
+    dma_destination: u16,
+    dma_length: u16,
+    pub dma_mode: DmaMode,
 }
 
 impl Memory {
-    pub fn new(cartridge: Box<dyn CartridgeType>) -> Memory {
+    pub fn new(cartridge: Box<dyn CartridgeType>, boot: Option<Vec<u8>>) -> Memory {
         let mut divider = Timer::new(Frequency::F16384);
         divider.enabled = true;
+
+        let boot_active;
+        let boot_rom;
+
+        let gb_mode;
+
+        match boot {
+            Some(boot) => {
+                boot_rom = boot;
+                boot_active = true;
+                gb_mode = GameBoyMode::CGB;
+            }
+            None => {
+                boot_rom = vec![];
+                boot_active = false;
+                gb_mode = match cartridge.get_cgb_flag() {
+                    0x80 | 0xC0 => GameBoyMode::CGB,
+                    _ => GameBoyMode::DMG,
+                };
+            }
+        }
+
         Memory {
             wram0: [0; 4096],
             wramn: [[0; 4096]; 7],
@@ -73,15 +109,27 @@ impl Memory {
             interrupt_flags: InterruptFlags::new(),
             timer: Timer::new(Frequency::F4096),
             divider,
-            gpu: GPU::new(),
+            gpu: GPU::new(gb_mode, boot_active),
             cartridge,
             joypad: Joypad::new(),
             key0: 0,
             wram_bank: 1,
+            boot_rom,
+            boot_active,
+            dma_source: 0,
+            dma_destination: 0,
+            dma_length: 0,
+            dma_mode: DmaMode::GDMA,
         }
     }
 
     pub fn step(&mut self, cycles: u8) {
+        // if self.dma_mode == DmaMode::HDMA {
+        //     self.hdma_step();
+        // } else {
+        //     self.gdma_step();
+        // }
+        self.gdma_step();
         if self.timer.step(cycles) {
             self.interrupt_flags.timer = true;
         }
@@ -102,6 +150,48 @@ impl Memory {
         }
     }
 
+    pub fn gdma_step(&mut self) {
+        if self.dma_length == 0 {
+            return;
+        }
+
+        let source = self.dma_source;
+        let destination = self.dma_destination;
+
+        for i in 0..(self.dma_length * 16) {
+            let byte = self.read_byte(source + i as u16);
+            // println!(
+            //     "DMA: {:#06x} -> {:#06x} = {:#04x}",
+            //     source + i as u16,
+            //     destination,
+            //     byte
+            // );
+            // println!(
+            //     "Destination: {:#06x}",
+            //     0x8000 | ((destination & 0x1FFF) + i as u16) as u16
+            // );
+            self.write_byte(0x8000 | (destination & 0x1FFF) + i as u16, byte);
+        }
+
+        self.dma_length = 0;
+    }
+
+    pub fn hdma_step(&mut self) {
+        println!("HDMA Step");
+        if self.dma_length == 0 {
+            return;
+        }
+
+        let source = self.dma_source;
+        let destination = self.dma_destination;
+
+        for i in 0..16 {
+            let byte = self.read_byte(source + i as u16);
+            self.write_byte(0x8000 | (destination & 0x1FFF) + i as u16, byte);
+        }
+        self.dma_length -= 1;
+    }
+
     pub fn interrupt_called(&mut self) -> bool {
         (self.interrupt_enable.joypad && self.interrupt_flags.joypad)
             || (self.interrupt_enable.lcd_stat && self.interrupt_flags.lcd_stat)
@@ -113,7 +203,15 @@ impl Memory {
     pub fn read_byte(&self, address: u16) -> u8 {
         let address = address as usize;
         match address {
-            ROM_BANK_0_BEGIN..=ROM_BANK_0_END => self.cartridge.read(address as u16),
+            ROM_BANK_0_BEGIN..=ROM_BANK_0_END => {
+                if self.boot_active && address <= 0xFF {
+                    return self.boot_rom[address];
+                }
+                if self.boot_active && address >= 0x200 && address <= 0x8FF {
+                    return self.boot_rom[address];
+                }
+                self.cartridge.read(address as u16)
+            }
             ROM_BANK_N_BEGIN..=ROM_BANK_N_END => self.cartridge.read(address as u16),
             VRAM_BEGIN..=VRAM_END => self.gpu.read_vram(address - VRAM_BEGIN),
             EXTERNAL_RAM_BEGIN..=EXTERNAL_RAM_END => self.cartridge.read_ram(address as u16),
@@ -155,6 +253,12 @@ impl Memory {
             0xD000..=0xDFFF => {
                 self.wramn[self.wram_bank as usize - 1][address - 0xD000] = value;
             }
+            ECHO_RAM_BEGIN..=0xEFFF => {
+                self.wram0[address - ECHO_RAM_BEGIN] = value;
+            }
+            0xF000..=0xFDFF => {
+                self.wramn[self.wram_bank as usize - 1][address - 0xF000] = value;
+            }
             OAM_BEGIN..=OAM_END => {
                 self.gpu.write_oam(address - OAM_BEGIN, value);
             }
@@ -174,10 +278,14 @@ impl Memory {
 
     fn read_io(&self, address: usize) -> u8 {
         match address {
-            0xFF00 => self.joypad.read_input(),
+            0xFF00 => {
+                // println!("Read Joypad: {:#04x}", self.joypad.read_input());
+                self.joypad.read_input()
+            }
             // 0xFF00 => 0xCF,
             // 0xFF01 => self.mem[address],
             // 0xFF02 => self.mem[address],
+            0xFF01..=0xFF02 => 0,
             DIVIDER => self.divider.counter,
             TIMER_COUNTER => self.timer.counter,
             TIMER_MODULO => self.timer.modulo,
@@ -191,40 +299,52 @@ impl Memory {
                 };
                 enabled | frequency
             }
+            0xFF08 => 0,
             INTERRUPT_FLAG => self.interrupt_flags.to_byte(),
+            0xFF10..=0xFF3F => {
+                // println!("Sound register not implemented: {:#06x}", address);
+                0
+            }
             0xFF40 => self.gpu.lcdc.to_byte(),
             LCD_STAT => self.gpu.stat.to_byte(),
             0xFF42 => self.gpu.scroll_y,
             0xFF43 => self.gpu.scroll_x,
             0xFF44 => self.gpu.line,
             0xFF45 => self.gpu.line_check,
-            0xFF46 => 0,
+            // 0xFF46 => 0,
             0xFF47 => {
-                self.gpu.get_bg_palette()
+                // self.gpu.get_bg_palette()
                 // println!("BG Palette: {:#04x}", self.gpu.get_bg_palette());
+                self.gpu.palettes[0]
                 // 0xFC
             }
             0xFF48 => {
-                self.gpu.get_object_palette0()
+                // self.gpu.get_object_palette0()
+                self.gpu.palettes[1]
                 // 0xFF
             }
             0xFF49 => {
-                self.gpu.get_object_palette1()
+                // self.gpu.get_object_palette1()
+                self.gpu.palettes[2]
                 // 0xFF
             }
             0xFF4A => self.gpu.window_y,
             0xFF4B => self.gpu.window_x,
             0xFF4C => {
-                println!("Key0: {:#04x}", self.key0);
+                println!("Key0 Read: {:#04x}", self.key0);
                 self.key0
             }
             0xFF4D => {
-                // println!("Speed: {:#04x}", self.gpu.speed);
+                println!("Speed: {:#04x}", self.gpu.speed);
                 self.gpu.speed
             }
             0xFF4F => {
                 // println!("VRAM Bank: {:#04x}", self.gpu.vram_bank);
                 return self.gpu.vram_bank | 0xFE;
+            }
+            0xFF55 => {
+                // println!("DMA Length: {:#04x}", self.dma_length);
+                self.dma_length as u8
             }
             0xFF68 => {
                 self.gpu.bgpi
@@ -234,7 +354,10 @@ impl Memory {
                         0x00
                     }
             }
-            0xFF69 => self.gpu.bg_palette[self.gpu.bgpi as usize],
+            0xFF69 => {
+                println!("BGPD: {:#04x}", self.gpu.bgpi);
+                self.gpu.bg_palette[self.gpu.bgpi as usize]
+            }
             0xFF6A => {
                 self.gpu.obpi
                     | if self.gpu.auto_increment_object {
@@ -243,8 +366,12 @@ impl Memory {
                         0x00
                     }
             }
-            0xFF6B => self.gpu.object_palette[self.gpu.obpi as usize],
+            0xFF6B => {
+                println!("OBPD: {:#04x}", self.gpu.obpi);
+                self.gpu.object_palette[self.gpu.obpi as usize]
+            }
             0xFF70 => self.wram_bank,
+            0xFF7E => 0,
             // _ => panic!("IO register not implemented: {:#06x}", address),
             _ => 0,
         }
@@ -253,8 +380,8 @@ impl Memory {
     fn write_io(&mut self, address: usize, value: u8) {
         match address {
             0xFF00 => self.joypad.write(value),
-            // 0xFF01 => self.mem[address] = value,
-            // 0xFF02 => self.mem[address] = value,
+            0xFF01 => {}
+            0xFF02 => {}
             DIVIDER => {
                 self.divider.counter = 0;
             }
@@ -275,6 +402,9 @@ impl Memory {
             }
             INTERRUPT_FLAG => {
                 self.interrupt_flags.from_byte(value);
+            }
+            0xFF10..=0xFF3F => {
+                // println!("Sound register not implemented: {:#06x}", address);
             }
             0xFF40 => {
                 self.gpu.lcdc.from_byte(value);
@@ -307,11 +437,13 @@ impl Memory {
                 self.gpu.set_bg_palette(value);
             }
             0xFF48 => {
-                self.gpu.set_object_palette0(value);
+                // self.gpu.set_object_palette0(value);
+                self.gpu.set_dmg_object_palette(value, 0)
             }
             0xFF49 => {
                 // println!("Object Palette 1: {:#04x}", value);
-                self.gpu.set_object_palette1(value);
+                // self.gpu.set_object_palette1(value);
+                self.gpu.set_dmg_object_palette(value, 1)
             }
             0xFF4A => {
                 self.gpu.window_y = value;
@@ -320,17 +452,58 @@ impl Memory {
                 self.gpu.window_x = value;
             }
             0xFF4C => {
-                println!("Key0: {:#04x}", value);
+                println!("Key0 Write: {:#04x}", value);
+                println!("mode: {:?}", self.gpu.gb_mode);
+                self.gpu.gb_mode = if value == 0x80 || value == 0xC0 {
+                    GameBoyMode::CGB
+                } else {
+                    GameBoyMode::DMG
+                };
+
+                println!("mode: {:?}", self.gpu.gb_mode);
+
                 self.key0 = value;
             }
             0xFF4F => {
                 self.gpu.vram_bank = value & 0x01;
-                println!("VRAM Bank: {:#04x}", value);
+                // println!("VRAM Bank: {:#04x}", value);
             }
             0xFF4D => {
                 // self.gpu.speed = value;
                 println!("Speed: {:#04x}", value)
             }
+            0xFF50 => {
+                // println!("Boot ROM disabled");
+                self.boot_active = false;
+            }
+            0xFF51 => {
+                self.dma_source = (self.dma_source & 0x00FF) | ((value as u16) << 8);
+                // println!("HDMA1: {:#04x}", value)
+            }
+            0xFF52 => {
+                self.dma_source = (self.dma_source & 0xFF00) | (value as u16 & 0xF0);
+                // println!("HDMA2: {:#04x}", value)
+            }
+            0xFF53 => {
+                self.dma_destination = (self.dma_destination & 0x00FF) | (value as u16) << 8;
+                // println!("HDMA3: {:#04x}", value)
+            }
+            0xFF54 => {
+                self.dma_destination = (self.dma_destination & 0xFF00) | (value as u16 & 0xF0);
+                // println!("HDMA4: {:#04x}", value)
+            }
+            0xFF55 => {
+                // self.dma_length = (((value & 0x7F) + 1) as u16) << 4;
+                self.dma_mode = if value & 0x80 != 0 {
+                    DmaMode::HDMA
+                } else {
+                    DmaMode::GDMA
+                };
+                // println!("DMA Mode: {:?}", self.dma_mode);
+                self.dma_length = (value & 0x7F) as u16;
+                // println!("HDMA5: {:#04x}", value)
+            }
+            0xFF56 => {}
             0xFF68 => {
                 self.gpu.bgpi = value & 0x3f;
                 self.gpu.auto_increment_bg = value & 0x80 != 0;
@@ -349,6 +522,7 @@ impl Memory {
                 self.gpu.set_cgb_object_palette(value);
                 // println!("OBPD: {:#04x}", value)
             }
+            0xFF6C => {}
             0xFF70 => {
                 if value == 0 {
                     self.wram_bank = 1;

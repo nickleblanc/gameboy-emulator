@@ -65,4 +65,7 @@ impl CartridgeType for MBC3 {
     fn write_ram(&mut self, address: u16, value: u8) {
         self.cartridge.write_ram(address, value);
     }
+    fn get_cgb_flag(&self) -> u8 {
+        self.cartridge.get_cgb_flag()
+    }
 }

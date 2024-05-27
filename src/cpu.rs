@@ -5,6 +5,7 @@ mod registers;
 use crate::mmu::Memory;
 
 use std::fs::OpenOptions;
+use std::io::BufWriter;
 use std::io::Write;
 
 use instructions::{
@@ -25,12 +26,38 @@ impl CPU {
     pub fn new(mem: Memory) -> CPU {
         CPU {
             registers: registers::Registers::new(),
-            sp: 0xFFFE,
-            pc: 0x100,
+            sp: 0x0000,
+            pc: 0x0000,
             mem,
-            ime: true,
+            ime: false,
             is_halted: false,
         }
+    }
+
+    pub fn boot(&mut self) {
+        self.registers.a = 0x01;
+        self.registers.f.z = true;
+        self.registers.f.n = true;
+        self.registers.f.h = true;
+        self.registers.f.c = true;
+        self.registers.set_bc(0x0013);
+        self.registers.set_de(0x00D8);
+        self.registers.set_hl(0x014D);
+        self.sp = 0xFFFE;
+        self.pc = 0x0100;
+    }
+
+    pub fn boot_cgb(&mut self) {
+        self.registers.a = 0x11;
+        self.registers.f.z = true;
+        self.registers.f.n = false;
+        self.registers.f.h = false;
+        self.registers.f.c = false;
+        self.registers.set_bc(0x0100);
+        self.registers.set_de(0xFF56);
+        self.registers.set_hl(0x000D);
+        self.sp = 0xFFFE;
+        self.pc = 0x0100;
     }
 
     fn get_instruction(&self) -> Instruction {
@@ -44,18 +71,19 @@ impl CPU {
         }
     }
 
-    pub fn log(&self) {
-        let string = format!(
-            "AF: {:04X?} BC: {:04X?} DE: {:04X?} HL: {:04X?} SP: {:04X?} PC: {:04X?} IME: {:?} INST: {:04X?} ({:02X?} {:02X?} {:02X?} {:02X?}) HL: {:02X?}\n",
-            self.registers.get_af(), self.registers.get_bc(), self.registers.get_de(), self.registers.get_hl(), self.sp, self.pc, self.ime, self.get_instruction(), self.mem.read_byte(self.pc.wrapping_add(1)), self.mem.read_byte(self.pc.wrapping_add(2)), self.mem.read_byte(self.pc.wrapping_add(3)), self.mem.read_byte(self.pc.wrapping_add(4)), self.mem.read_byte(self.registers.get_hl())
-        );
+    #[inline(always)]
+    pub fn log(&self, file: &mut BufWriter<&std::fs::File>) {
+        // let string = format!(
+        //     "AF: {:04X?} BC: {:04X?} DE: {:04X?} HL: {:04X?} SP: {:04X?} PC: {:04X?} INST: {:04X?} ({:02X?} {:02X?})\n",
+        //     self.registers.get_af(), self.registers.get_bc(), self.registers.get_de(), self.registers.get_hl(), self.sp, self.pc, self.get_instruction(), self.mem.read_byte(self.pc.wrapping_add(1)), self.mem.read_byte(self.pc.wrapping_add(2)));
 
-        let mut file = OpenOptions::new()
-            .create(true)
-            .write(true)
-            .append(true)
-            .open("log.txt")
-            .expect("failed to open log file");
+        let string = format!(
+            "PC: {:04X?} INST: {:04X?} ({:02X?} {:02X?})\n",
+            self.pc,
+            self.get_instruction(),
+            self.mem.read_byte(self.pc.wrapping_add(1)),
+            self.mem.read_byte(self.pc.wrapping_add(2))
+        );
 
         file.write_all(string.as_bytes())
             .expect("failed to write to log");

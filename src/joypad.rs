@@ -1,4 +1,4 @@
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum Key {
     Up,
     Down,
@@ -19,9 +19,9 @@ pub struct Joypad {
 impl Joypad {
     pub fn new() -> Joypad {
         Joypad {
-            action_buttons: 0xFF,
-            direction_buttons: 0xFF,
-            selected_buttons: 0xFF,
+            action_buttons: 0x0F,
+            direction_buttons: 0x0F,
+            selected_buttons: 0xF0,
         }
     }
 
@@ -56,7 +56,7 @@ impl Joypad {
         match value {
             0x10 => self.action_buttons,
             0x20 => self.direction_buttons,
-            0x30 => 0xFF,
+            0x30 => 0xCF,
             _ => 0x0,
         }
     }

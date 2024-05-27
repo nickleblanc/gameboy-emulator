@@ -28,4 +28,7 @@ impl CartridgeType for RomOnlyCartridge {
     fn write_ram(&mut self, _address: u16, _value: u8) {
         return;
     }
+    fn get_cgb_flag(&self) -> u8 {
+        self.cartridge.get_cgb_flag()
+    }
 }

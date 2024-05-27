@@ -6,6 +6,9 @@ mod joypad;
 mod mmu;
 mod timer;
 
+use std::fs::OpenOptions;
+use std::io::BufWriter;
+
 use cpu::CPU;
 use mmu::Memory;
 
@@ -20,9 +23,6 @@ use sdl2::keyboard::Keycode;
 use sdl2::rect::Rect;
 use sdl2::video::Window;
 
-// use rfd::FileDialog;
-// use std::path::PathBuf;
-
 const SCALE: u32 = 5;
 const SCREEN_WIDTH: u32 = 160;
 const SCREEN_HEIGHT: u32 = 144;
@@ -32,6 +32,14 @@ const WINDOW_HEIGHT: u32 = SCREEN_HEIGHT * SCALE;
 const DEBUG: bool = true;
 
 fn main() {
+    let log_file = OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        // .append(true)
+        .open("log.txt")
+        .expect("failed to open log file");
+    let mut f = BufWriter::new(&log_file);
     // let mut rom = File::open("./test-roms/Pokemon - Red.gb").expect("failed to open file");
     let mut rom = File::open("./test-roms/Pokemon - Silver.gbc").expect("failed to open file");
     // let mut rom = File::open("./test-roms/Pokemon - Crystal.gbc").expect("failed to open file");
@@ -44,7 +52,6 @@ fn main() {
     // File::open("./test-roms/Dr. Mario (World) (Rev 1).gb").expect("failed to open file");
     // let mut rom = File::open("./test-roms/dmg-acid2.gb").expect("failed to open file");
     // let mut rom = File::open("./test-roms/cgb-acid2.gbc").expect("failed to open file");
-    // let mut rom = File::open("./test-roms/cgb_boot.bin").expect("failed to open file");
     // let mut rom = File::open("./test-roms/Tetris.gb").expect("failed to open file");
     // let mut rom = File::open("./test-roms/cpu_instrs.gb").expect("failed to open file");
 
@@ -59,10 +66,36 @@ fn main() {
     rom.read_to_end(&mut contents).unwrap();
 
     let cartridge = cartridge::new_cartridge(contents.clone());
-    let mmu = Memory::new(cartridge);
+
+    let cgb_flag = cartridge.get_cgb_flag();
+
+    let boot_rom_file = File::open("./test-roms/cgb_boot.bin");
+
+    let boot_rom = match boot_rom_file {
+        Ok(mut boot_rom) => {
+            let mut boot_rom_contents = Vec::new();
+            boot_rom.read_to_end(&mut boot_rom_contents).unwrap();
+            Some(boot_rom_contents)
+        }
+        Err(_) => None,
+    };
+
+    let mmu = Memory::new(cartridge, boot_rom.clone());
+
     let mut cpu = cpu::CPU::new(mmu);
 
-    sdl2(&mut cpu, window, sdl_context);
+    if boot_rom.is_none() {
+        match cgb_flag {
+            0x80 | 0xC0 => {
+                cpu.boot_cgb();
+            }
+            _ => {
+                cpu.boot();
+            }
+        }
+    }
+
+    sdl2(&mut cpu, window, sdl_context, &mut f);
 }
 
 fn initialize_sdl2() -> (Window, sdl2::Sdl) {
@@ -83,7 +116,7 @@ fn initialize_sdl2() -> (Window, sdl2::Sdl) {
     (window, sdl_context)
 }
 
-fn sdl2(cpu: &mut CPU, window: Window, sdl_context: sdl2::Sdl) {
+fn sdl2(cpu: &mut CPU, window: Window, sdl_context: sdl2::Sdl, log_file: &mut BufWriter<&File>) {
     // Initialize SDL2
 
     let mut canvas = window.into_canvas().build().unwrap();
@@ -146,11 +179,12 @@ fn sdl2(cpu: &mut CPU, window: Window, sdl_context: sdl2::Sdl) {
         now = Instant::now();
         let delta = time_delta as f64 / 1_000_000_000 as f64;
         let cycles_to_run = delta * 4190000 as f64;
+        // let cycles_to_run = delta * 8000000 as f64;
         let mut cycles_elapsed = 0;
         while cycles_elapsed <= cycles_to_run as usize {
             cycles_elapsed += cpu.step() as usize;
             if DEBUG {
-                // cpu.log();
+                cpu.log(log_file);
                 // println!("line: {}", cpu.mem.gpu.line)
             }
         }
