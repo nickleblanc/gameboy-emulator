@@ -13,6 +13,10 @@ impl RomOnlyCartridge {
 }
 
 impl CartridgeType for RomOnlyCartridge {
+    fn set_sram(&mut self, _sram: Vec<u8>) {
+        return;
+    }
+
     fn read(&self, address: u16) -> u8 {
         self.cartridge.read(address)
     }

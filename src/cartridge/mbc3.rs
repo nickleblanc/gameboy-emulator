@@ -24,6 +24,10 @@ impl MBC3 {
 }
 
 impl CartridgeType for MBC3 {
+    fn set_sram(&mut self, sram: Vec<u8>) {
+        self.cartridge.set_sram(sram);
+    }
+
     fn read(&self, address: u16) -> u8 {
         self.cartridge.read(address)
     }

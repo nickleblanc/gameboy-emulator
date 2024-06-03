@@ -200,7 +200,7 @@ pub struct GPU {
     pub scroll_y: u8,
     pub lcdc: Lcdc,
     pub stat: Stat,
-    wly: u8,
+    pub wly: u8,
     bg_priority_map: [BackgroundPriority; 65536],
     pub palettes: [u8; 3],
     // pub dmg_object_palettes_raw: [u8; 2],
@@ -437,8 +437,8 @@ impl GPU {
 
         match self.stat.mode {
             Mode::HorizontalBlank => {
-                if self.cycles >= 200 {
-                    self.cycles = self.cycles % 200;
+                if self.cycles >= 204 {
+                    self.cycles = self.cycles % 204;
                     self.line += 1;
 
                     if self.line >= 144 {

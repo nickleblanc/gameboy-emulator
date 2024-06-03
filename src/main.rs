@@ -6,8 +6,11 @@ mod joypad;
 mod mmu;
 mod timer;
 
+use std::fs;
 use std::fs::OpenOptions;
 use std::io::BufWriter;
+
+use rfd::FileDialog;
 
 use cpu::CPU;
 use mmu::Memory;
@@ -36,55 +39,61 @@ fn main() {
         .create(true)
         .write(true)
         .truncate(true)
-        // .append(true)
         .open("log.txt")
         .expect("failed to open log file");
     let mut f = BufWriter::new(&log_file);
+
+    let (mut window, sdl_context) = initialize_sdl2();
+
     // let mut rom = File::open("./test-roms/Pokemon - Red.gb").expect("failed to open file");
-    let mut rom = File::open("./test-roms/Pokemon - Silver.gbc").expect("failed to open file");
-    // let mut rom = File::open("./test-roms/Pokemon - Crystal.gbc").expect("failed to open file");
-    // let mut rom = File::open("./test-roms/Wario Land 3.gbc").expect("failed to open file");
-    // let mut rom = File::open("./test-roms/Pocket Monsters - Aka.gb").expect("failed to open file");
-
-    let (window, sdl_context) = initialize_sdl2();
-
-    // let mut rom =
-    // File::open("./test-roms/Dr. Mario (World) (Rev 1).gb").expect("failed to open file");
+    // let mut rom = File::open("./test-roms/Pokemon - Silver.gbc").expect("failed to open file");
+    // let mut rom = File::open("./test-roms/Pokemon - Crystal.gbc").expect("failed to open file");");
     // let mut rom = File::open("./test-roms/dmg-acid2.gb").expect("failed to open file");
     // let mut rom = File::open("./test-roms/cgb-acid2.gbc").expect("failed to open file");
-    // let mut rom = File::open("./test-roms/Tetris.gb").expect("failed to open file");
-    // let mut rom = File::open("./test-roms/cpu_instrs.gb").expect("failed to open file");
+    // let mut rom = File::open("./test-roms/instr_timing.gb").expect("failed to open file");
+    // let mut rom = File::open("./test-roms/mooneye/acceptance/ppu/lcdon_write_timing-GS.gb")
+    // .expect("failed to open file");
 
-    // let file_path = file_dialog();
+    let file_path = FileDialog::new()
+        .add_filter("Gameboy ROM", &["gb", "gbc"])
+        .pick_file();
 
-    // if let Some(path) = file_path {
-    //     rom = File::open(path).expect("failed to open file");
-    //     window.raise();
-    // }
+    let file_path = match file_path {
+        Some(path) => path,
+        None => panic!("No file selected"),
+    };
 
-    let mut contents = Vec::new();
-    rom.read_to_end(&mut contents).unwrap();
+    let mut cartridge = cartridge::new_cartridge(file_path);
 
-    let cartridge = cartridge::new_cartridge(contents.clone());
+    let save_file = File::open("./test-roms/Pokemon - Silver.sav");
+    match save_file {
+        Ok(mut save_file) => {
+            let mut save_file_contents = Vec::new();
+            save_file.read_to_end(&mut save_file_contents).unwrap();
+            cartridge.set_sram(save_file_contents);
+        }
+        Err(_) => {
+            println!("No save file found")
+        }
+    };
 
     let cgb_flag = cartridge.get_cgb_flag();
 
-    let boot_rom_file = File::open("./test-roms/cgb_boot.bin");
+    let boot_rom = fs::read("./test-roms/cgb_boot.bin");
 
-    let boot_rom = match boot_rom_file {
-        Ok(mut boot_rom) => {
-            let mut boot_rom_contents = Vec::new();
-            boot_rom.read_to_end(&mut boot_rom_contents).unwrap();
-            Some(boot_rom_contents)
+    let boot_rom_contents = match boot_rom {
+        Ok(rom) => Some(rom),
+        Err(_) => {
+            println!("No boot rom found");
+            None
         }
-        Err(_) => None,
     };
 
-    let mmu = Memory::new(cartridge, boot_rom.clone());
+    let mmu = Memory::new(cartridge, boot_rom_contents.clone());
 
     let mut cpu = cpu::CPU::new(mmu);
 
-    if boot_rom.is_none() {
+    if boot_rom_contents.is_none() {
         match cgb_flag {
             0x80 | 0xC0 => {
                 cpu.boot_cgb();
@@ -184,7 +193,7 @@ fn sdl2(cpu: &mut CPU, window: Window, sdl_context: sdl2::Sdl, log_file: &mut Bu
         while cycles_elapsed <= cycles_to_run as usize {
             cycles_elapsed += cpu.step() as usize;
             if DEBUG {
-                cpu.log(log_file);
+                // cpu.log(log_file);
                 // println!("line: {}", cpu.mem.gpu.line)
             }
         }
@@ -212,10 +221,3 @@ fn sdl2(cpu: &mut CPU, window: Window, sdl_context: sdl2::Sdl, log_file: &mut Bu
         }
     }
 }
-
-// fn file_dialog() -> Option<PathBuf> {
-//     let file_path = FileDialog::new()
-//         .add_filter("Gameboy ROM", &["gb", "gbc"])
-//         .pick_file();
-//     return file_path;
-// }

@@ -1,6 +1,7 @@
 use crate::cartridge::{get_ram_size, Cartridge, CartridgeType};
 pub struct MBC1 {
     cartridge: Cartridge,
+    pub mode: u8,
 }
 
 impl MBC1 {
@@ -13,11 +14,16 @@ impl MBC1 {
         let ram_size = get_ram_size(&rom);
         MBC1 {
             cartridge: Cartridge::new(rom, has_ram, ram_size),
+            mode: 0,
         }
     }
 }
 
 impl CartridgeType for MBC1 {
+    fn set_sram(&mut self, sram: Vec<u8>) {
+        self.cartridge.set_sram(sram);
+    }
+
     fn read(&self, address: u16) -> u8 {
         self.cartridge.read(address)
     }
@@ -31,7 +37,7 @@ impl CartridgeType for MBC1 {
                 let value = if value == 0 { 1 } else { value };
                 self.cartridge.rom_bank = (self.cartridge.rom_bank & 0xE0) | (value & 0x1F);
             }
-            0x4000..=0x5FFF => match self.cartridge.mode {
+            0x4000..=0x5FFF => match self.mode {
                 0 => {
                     self.cartridge.rom_bank = (self.cartridge.rom_bank) | ((value & 0x03) << 5);
                 }
@@ -41,7 +47,7 @@ impl CartridgeType for MBC1 {
                 _ => {}
             },
             0x6000..=0x7FFF => {
-                self.cartridge.mode = value & 0x01;
+                self.mode = value & 0x01;
             }
             _ => {}
         }

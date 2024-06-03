@@ -2,6 +2,10 @@ mod mbc1;
 mod mbc3;
 mod rom_only;
 
+use std::fs;
+
+use std::path::PathBuf;
+
 use crate::cartridge::mbc1::MBC1;
 use crate::cartridge::mbc3::MBC3;
 use rom_only::RomOnlyCartridge;
@@ -11,12 +15,12 @@ pub struct Cartridge {
     pub ram: Option<Vec<u8>>,
     pub ram_bank: u8,
     pub rom_bank: u8,
-    pub mode: u8,
     pub ram_enabled: bool,
     pub cgb_flag: u8,
 }
 
 pub trait CartridgeType {
+    fn set_sram(&mut self, sram: Vec<u8>);
     fn read(&self, address: u16) -> u8;
     fn write(&mut self, address: u16, value: u8);
     fn read_ram(&self, address: u16) -> u8;
@@ -24,7 +28,8 @@ pub trait CartridgeType {
     fn get_cgb_flag(&self) -> u8;
 }
 
-pub fn new_cartridge(rom: Vec<u8>) -> Box<dyn CartridgeType> {
+pub fn new_cartridge(path: PathBuf) -> Box<dyn CartridgeType> {
+    let rom = fs::read(path).expect("failed to open file");
     let cartridge_type = rom[0x147];
     println!("Cartridge type: {:#04x}", cartridge_type);
     println!("CGB: {:#04x}", rom[0x143]);
@@ -66,10 +71,13 @@ impl Cartridge {
             ram,
             ram_bank: 0,
             rom_bank: 1,
-            mode: 0,
             ram_enabled: false,
             cgb_flag,
         }
+    }
+
+    pub fn set_sram(&mut self, sram: Vec<u8>) {
+        self.ram = Some(sram);
     }
 
     pub fn read(&self, address: u16) -> u8 {

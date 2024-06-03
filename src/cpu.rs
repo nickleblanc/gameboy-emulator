@@ -73,17 +73,17 @@ impl CPU {
 
     #[inline(always)]
     pub fn log(&self, file: &mut BufWriter<&std::fs::File>) {
-        // let string = format!(
-        //     "AF: {:04X?} BC: {:04X?} DE: {:04X?} HL: {:04X?} SP: {:04X?} PC: {:04X?} INST: {:04X?} ({:02X?} {:02X?})\n",
-        //     self.registers.get_af(), self.registers.get_bc(), self.registers.get_de(), self.registers.get_hl(), self.sp, self.pc, self.get_instruction(), self.mem.read_byte(self.pc.wrapping_add(1)), self.mem.read_byte(self.pc.wrapping_add(2)));
-
         let string = format!(
-            "PC: {:04X?} INST: {:04X?} ({:02X?} {:02X?})\n",
-            self.pc,
-            self.get_instruction(),
-            self.mem.read_byte(self.pc.wrapping_add(1)),
-            self.mem.read_byte(self.pc.wrapping_add(2))
-        );
+            "AF: {:04X?} BC: {:04X?} DE: {:04X?} HL: {:04X?} SP: {:04X?} PC: {:04X?} INST: {:04X?} ({:02X?} {:02X?}) JOY: {:04X?}\n",
+            self.registers.get_af(), self.registers.get_bc(), self.registers.get_de(), self.registers.get_hl(), self.sp, self.pc, self.get_instruction(), self.mem.read_byte(self.pc.wrapping_add(1)), self.mem.read_byte(self.pc.wrapping_add(2)), self.mem.joypad.read_input());
+
+        // let string = format!(
+        //     "PC: {:04X?} INST: {:04X?} ({:02X?} {:02X?})\n",
+        //     self.pc,
+        //     self.get_instruction(),
+        //     self.mem.read_byte(self.pc.wrapping_add(1)),
+        //     self.mem.read_byte(self.pc.wrapping_add(2))
+        // );
 
         file.write_all(string.as_bytes())
             .expect("failed to write to log");

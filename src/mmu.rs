@@ -125,7 +125,8 @@ impl Memory {
 
     pub fn step(&mut self, cycles: u8) {
         // if self.dma_mode == DmaMode::HDMA {
-        //     self.hdma_step();
+        //     // self.hdma_step();
+        //     panic!("HDMA not implemented");
         // } else {
         //     self.gdma_step();
         // }
@@ -154,6 +155,7 @@ impl Memory {
         if self.dma_length == 0 {
             return;
         }
+        println!("DMA Step: {:#04x}", self.dma_length);
 
         let source = self.dma_source;
         let destination = self.dma_destination;
@@ -221,8 +223,8 @@ impl Memory {
             }
             0xD000..=0xDFFF => self.wramn[self.wram_bank as usize - 1][address - 0xD000],
             // 0xD000..=0xDFFF => 0x00,
-            ECHO_RAM_BEGIN..=0xEFFF => self.wram0[address - ECHO_RAM_BEGIN],
-            0xF000..=0xFDFF => self.wramn[self.wram_bank as usize - 1][address - 0xF000],
+            // ECHO_RAM_BEGIN..=0xEFFF => self.wram0[address - ECHO_RAM_BEGIN],
+            // 0xF000..=0xFDFF => self.wramn[self.wram_bank as usize - 1][address - 0xF000],
             OAM_BEGIN..=OAM_END => self.gpu.oam[address - OAM_BEGIN],
             IO_REGISTERS_BEGIN..=IO_REGISTERS_END => self.read_io(address),
             HIGH_RAM_BEGIN..=HIGH_RAM_END => self.hram[address - HIGH_RAM_BEGIN],
@@ -253,12 +255,12 @@ impl Memory {
             0xD000..=0xDFFF => {
                 self.wramn[self.wram_bank as usize - 1][address - 0xD000] = value;
             }
-            ECHO_RAM_BEGIN..=0xEFFF => {
-                self.wram0[address - ECHO_RAM_BEGIN] = value;
-            }
-            0xF000..=0xFDFF => {
-                self.wramn[self.wram_bank as usize - 1][address - 0xF000] = value;
-            }
+            // ECHO_RAM_BEGIN..=0xEFFF => {
+            //     self.wram0[address - ECHO_RAM_BEGIN] = value;
+            // }
+            // 0xF000..=0xFDFF => {
+            //     self.wramn[self.wram_bank as usize - 1][address - 0xF000] = value;
+            // }
             OAM_BEGIN..=OAM_END => {
                 self.gpu.write_oam(address - OAM_BEGIN, value);
             }
@@ -279,7 +281,9 @@ impl Memory {
     fn read_io(&self, address: usize) -> u8 {
         match address {
             0xFF00 => {
-                // println!("Read Joypad: {:#04x}", self.joypad.read_input());
+                if self.joypad.read_input() == 0x07 {
+                    // println!("Read Joypad: {:#04x}", self.joypad.read_input());
+                }
                 self.joypad.read_input()
             }
             // 0xFF00 => 0xCF,
@@ -410,6 +414,10 @@ impl Memory {
                 self.gpu.lcdc.from_byte(value);
                 if value & 0x80 == 0 {
                     self.gpu.stat.mode = Mode::HorizontalBlank;
+                    // self.gpu.stat.reset();
+                    // self.gpu.line = 0;
+                    // self.gpu.cycles = 0;
+                    // self.gpu.wly = 0;
                 }
             }
             LCD_STAT => {
