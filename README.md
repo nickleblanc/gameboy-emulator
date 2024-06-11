@@ -2,9 +2,9 @@
 
 Game Boy (DMG) and Game Boy Color (CGB) emulator written from scratch in Rust. It uses SDL2 to handle user input and create windows. Most features of CGB work, but HDMA is not fully implemented.
 
-![alt text](images/red.png)
-![alt text](images/mario_land.png)
-![alt text](images/silver.png)
+<!-- ![alt text](images/red.png) ![alt text](images/mario_land.png) ![alt text](images/silver.png) -->
+
+<img src="images/red.png" alt="drawing" width="500"/> <img src="images/mario_land.png" alt="drawing" width="500"/> <img src="images/silver.png" alt="drawing" width="500"/>
 
 ## Getting Started
 
