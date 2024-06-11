@@ -1,44 +1,49 @@
-use std::f32::consts::E;
-
-use crate::cartridge::CartridgeType;
+use crate::cartridge::Cartridge;
 use crate::gpu::{stat::Mode, GameBoyMode, InterruptRequest, GPU};
 use crate::interrupts::InterruptFlags;
 use crate::joypad::Joypad;
 use crate::timer::{Frequency, Timer};
 
-pub const ROM_BANK_0_BEGIN: usize = 0x0000;
-pub const ROM_BANK_0_END: usize = 0x3FFF;
+const ROM_BANK_0_BEGIN: usize = 0x0000;
+const ROM_BANK_0_END: usize = 0x3FFF;
 
-pub const ROM_BANK_N_BEGIN: usize = 0x4000;
-pub const ROM_BANK_N_END: usize = 0x7FFF;
+const ROM_BANK_N_BEGIN: usize = 0x4000;
+const ROM_BANK_N_END: usize = 0x7FFF;
 
 pub const VRAM_BEGIN: usize = 0x8000;
 pub const VRAM_END: usize = 0x9FFF;
 pub const VRAM_SIZE: usize = VRAM_END - VRAM_BEGIN + 1;
 
-pub const EXTERNAL_RAM_BEGIN: usize = 0xA000;
-pub const EXTERNAL_RAM_END: usize = 0xBFFF;
+const EXTERNAL_RAM_BEGIN: usize = 0xA000;
+const EXTERNAL_RAM_END: usize = 0xBFFF;
 
-pub const WORKING_RAM_BEGIN: usize = 0xC000;
-pub const WORKING_RAM_END: usize = 0xDFFF;
-pub const WORKING_RAM_SIZE: usize = WORKING_RAM_END - WORKING_RAM_BEGIN + 1;
+const WRAM_BANK_0_BEGIN: usize = 0xC000;
+const WRAM_BANK_0_END: usize = 0xCFFF;
 
-pub const ECHO_RAM_BEGIN: usize = 0xE000;
-pub const ECHO_RAM_END: usize = 0xFDFF;
+const WRAM_BANK_N_BEGIN: usize = 0xD000;
+const WRAM_BANK_N_END: usize = 0xDFFF;
 
-pub const OAM_BEGIN: usize = 0xFE00;
-pub const OAM_END: usize = 0xFE9F;
+const WRAM_BANK_SIZE: usize = 0x1000;
+
+const ECHO_RAM_BANK_0_BEGIN: usize = 0xE000;
+const ECHO_RAM_BANK_0_END: usize = 0xEFFF;
+
+const ECHO_RAM_BANK_N_BEGIN: usize = 0xF000;
+const ECHO_RAM_BANK_N_END: usize = 0xFDFF;
+
+const OAM_BEGIN: usize = 0xFE00;
+const OAM_END: usize = 0xFE9F;
 pub const OAM_SIZE: usize = OAM_END - OAM_BEGIN + 1;
 
-pub const UNUSED_BEGIN: usize = 0xFEA0;
-pub const UNUSED_END: usize = 0xFEFF;
+const UNUSED_BEGIN: usize = 0xFEA0;
+const UNUSED_END: usize = 0xFEFF;
 
-pub const IO_REGISTERS_BEGIN: usize = 0xFF00;
-pub const IO_REGISTERS_END: usize = 0xFF7F;
+const IO_REGISTERS_BEGIN: usize = 0xFF00;
+const IO_REGISTERS_END: usize = 0xFF7F;
 
-pub const HIGH_RAM_BEGIN: usize = 0xFF80;
-pub const HIGH_RAM_END: usize = 0xFFFE;
-pub const HIGH_RAM_SIZE: usize = HIGH_RAM_END - HIGH_RAM_BEGIN + 1;
+const HIGH_RAM_BEGIN: usize = 0xFF80;
+const HIGH_RAM_END: usize = 0xFFFE;
+const HIGH_RAM_SIZE: usize = HIGH_RAM_END - HIGH_RAM_BEGIN + 1;
 
 const DIVIDER: usize = 0xFF04;
 const TIMER_COUNTER: usize = 0xFF05;
@@ -55,15 +60,14 @@ enum DmaMode {
 }
 
 pub struct Memory {
-    wram0: [u8; 4096],
-    wramn: [[u8; 4096]; 7],
+    wram: [u8; WRAM_BANK_SIZE * 8],
     hram: [u8; HIGH_RAM_SIZE],
     pub interrupt_enable: InterruptFlags,
     pub interrupt_flags: InterruptFlags,
     timer: Timer,
     divider: Timer,
     pub gpu: GPU,
-    cartridge: Box<dyn CartridgeType>,
+    cartridge: Box<dyn Cartridge>,
     pub joypad: Joypad,
     key0: u8,
     wram_bank: u8,
@@ -72,11 +76,12 @@ pub struct Memory {
     dma_source: u16,
     dma_destination: u16,
     dma_length: u16,
-    pub dma_mode: DmaMode,
+    dma_mode: DmaMode,
+    serial: u8,
 }
 
 impl Memory {
-    pub fn new(cartridge: Box<dyn CartridgeType>, boot: Option<Vec<u8>>) -> Memory {
+    pub fn new(cartridge: Box<dyn Cartridge>, boot: Option<Vec<u8>>) -> Memory {
         let mut divider = Timer::new(Frequency::F16384);
         divider.enabled = true;
 
@@ -102,8 +107,7 @@ impl Memory {
         }
 
         Memory {
-            wram0: [0; 4096],
-            wramn: [[0; 4096]; 7],
+            wram: [0; WRAM_BANK_SIZE * 8],
             hram: [0; HIGH_RAM_SIZE],
             interrupt_enable: InterruptFlags::new(),
             interrupt_flags: InterruptFlags::new(),
@@ -120,6 +124,7 @@ impl Memory {
             dma_destination: 0,
             dma_length: 0,
             dma_mode: DmaMode::GDMA,
+            serial: 0,
         }
     }
 
@@ -130,7 +135,7 @@ impl Memory {
         // } else {
         //     self.gdma_step();
         // }
-        self.gdma_step();
+        // self.gdma_step();
         if self.timer.step(cycles) {
             self.interrupt_flags.timer = true;
         }
@@ -151,48 +156,52 @@ impl Memory {
         }
     }
 
-    pub fn gdma_step(&mut self) {
-        if self.dma_length == 0 {
-            return;
-        }
-        println!("DMA Step: {:#04x}", self.dma_length);
+    /*
+    HDMA not fully implemented
+     */
 
-        let source = self.dma_source;
-        let destination = self.dma_destination;
+    // pub fn gdma_step(&mut self) {
+    //     if self.dma_length == 0 {
+    //         return;
+    //     }
+    //     println!("DMA Step: {:#04x}", self.dma_length);
 
-        for i in 0..(self.dma_length * 16) {
-            let byte = self.read_byte(source + i as u16);
-            // println!(
-            //     "DMA: {:#06x} -> {:#06x} = {:#04x}",
-            //     source + i as u16,
-            //     destination,
-            //     byte
-            // );
-            // println!(
-            //     "Destination: {:#06x}",
-            //     0x8000 | ((destination & 0x1FFF) + i as u16) as u16
-            // );
-            self.write_byte(0x8000 | (destination & 0x1FFF) + i as u16, byte);
-        }
+    //     let source = self.dma_source;
+    //     let destination = self.dma_destination;
 
-        self.dma_length = 0;
-    }
+    //     for i in 0..(self.dma_length * 16) {
+    //         let byte = self.read_byte(source + i as u16);
+    //         // println!(
+    //         //     "DMA: {:#06x} -> {:#06x} = {:#04x}",
+    //         //     source + i as u16,
+    //         //     destination,
+    //         //     byte
+    //         // );
+    //         // println!(
+    //         //     "Destination: {:#06x}",
+    //         //     0x8000 | ((destination & 0x1FFF) + i as u16) as u16
+    //         // );
+    //         self.write_byte(0x8000 | (destination & 0x1FFF) + i as u16, byte);
+    //     }
 
-    pub fn hdma_step(&mut self) {
-        println!("HDMA Step");
-        if self.dma_length == 0 {
-            return;
-        }
+    //     self.dma_length = 0;
+    // }
 
-        let source = self.dma_source;
-        let destination = self.dma_destination;
+    // pub fn hdma_step(&mut self) {
+    //     println!("HDMA Step");
+    //     if self.dma_length == 0 {
+    //         return;
+    //     }
 
-        for i in 0..16 {
-            let byte = self.read_byte(source + i as u16);
-            self.write_byte(0x8000 | (destination & 0x1FFF) + i as u16, byte);
-        }
-        self.dma_length -= 1;
-    }
+    //     let source = self.dma_source;
+    //     let destination = self.dma_destination;
+
+    //     for i in 0..16 {
+    //         let byte = self.read_byte(source + i as u16);
+    //         self.write_byte(0x8000 | (destination & 0x1FFF) + i as u16, byte);
+    //     }
+    //     self.dma_length -= 1;
+    // }
 
     pub fn interrupt_called(&mut self) -> bool {
         (self.interrupt_enable.joypad && self.interrupt_flags.joypad)
@@ -217,19 +226,22 @@ impl Memory {
             ROM_BANK_N_BEGIN..=ROM_BANK_N_END => self.cartridge.read(address as u16),
             VRAM_BEGIN..=VRAM_END => self.gpu.read_vram(address - VRAM_BEGIN),
             EXTERNAL_RAM_BEGIN..=EXTERNAL_RAM_END => self.cartridge.read_ram(address as u16),
-            WORKING_RAM_BEGIN..=0xCFFF => {
-                // println!("WRAM Bank: {:#04x}", self.wram_bank);
-                self.wram0[address - WORKING_RAM_BEGIN]
+            WRAM_BANK_0_BEGIN..=WRAM_BANK_0_END => self.wram[address - WRAM_BANK_0_BEGIN],
+            WRAM_BANK_N_BEGIN..=WRAM_BANK_N_END => {
+                self.wram[self.wram_bank as usize * 4096 + address - WRAM_BANK_N_BEGIN]
             }
-            0xD000..=0xDFFF => self.wramn[self.wram_bank as usize - 1][address - 0xD000],
-            // 0xD000..=0xDFFF => 0x00,
-            // ECHO_RAM_BEGIN..=0xEFFF => self.wram0[address - ECHO_RAM_BEGIN],
-            // 0xF000..=0xFDFF => self.wramn[self.wram_bank as usize - 1][address - 0xF000],
+            ECHO_RAM_BANK_0_BEGIN..=ECHO_RAM_BANK_0_END => {
+                self.wram[address - ECHO_RAM_BANK_0_BEGIN]
+            }
+            ECHO_RAM_BANK_N_BEGIN..=ECHO_RAM_BANK_N_END => {
+                self.wram[self.wram_bank as usize * 4096 + address - ECHO_RAM_BANK_N_BEGIN]
+            }
             OAM_BEGIN..=OAM_END => self.gpu.oam[address - OAM_BEGIN],
+            UNUSED_BEGIN..=UNUSED_END => 0xFF,
             IO_REGISTERS_BEGIN..=IO_REGISTERS_END => self.read_io(address),
             HIGH_RAM_BEGIN..=HIGH_RAM_END => self.hram[address - HIGH_RAM_BEGIN],
             INTERRUPT_ENABLE => self.interrupt_enable.to_byte(),
-            _ => 0,
+            _ => panic!("Memory read not implemented: {:#06x}", address),
         }
     }
 
@@ -249,18 +261,18 @@ impl Memory {
             EXTERNAL_RAM_BEGIN..=EXTERNAL_RAM_END => {
                 self.cartridge.write_ram(address as u16, value);
             }
-            WORKING_RAM_BEGIN..=0xCFFF => {
-                self.wram0[address - WORKING_RAM_BEGIN] = value;
+            WRAM_BANK_0_BEGIN..=WRAM_BANK_0_END => {
+                self.wram[address - WRAM_BANK_0_BEGIN] = value;
             }
-            0xD000..=0xDFFF => {
-                self.wramn[self.wram_bank as usize - 1][address - 0xD000] = value;
+            WRAM_BANK_N_BEGIN..=WRAM_BANK_N_END => {
+                self.wram[self.wram_bank as usize * 4096 + address - WRAM_BANK_N_BEGIN] = value;
             }
-            // ECHO_RAM_BEGIN..=0xEFFF => {
-            //     self.wram0[address - ECHO_RAM_BEGIN] = value;
-            // }
-            // 0xF000..=0xFDFF => {
-            //     self.wramn[self.wram_bank as usize - 1][address - 0xF000] = value;
-            // }
+            ECHO_RAM_BANK_0_BEGIN..=ECHO_RAM_BANK_0_END => {
+                self.wram[address - ECHO_RAM_BANK_0_BEGIN] = value;
+            }
+            ECHO_RAM_BANK_N_BEGIN..=ECHO_RAM_BANK_N_END => {
+                self.wram[self.wram_bank as usize * 4096 + address - ECHO_RAM_BANK_N_BEGIN] = value;
+            }
             OAM_BEGIN..=OAM_END => {
                 self.gpu.write_oam(address - OAM_BEGIN, value);
             }
@@ -280,16 +292,9 @@ impl Memory {
 
     fn read_io(&self, address: usize) -> u8 {
         match address {
-            0xFF00 => {
-                if self.joypad.read_input() == 0x07 {
-                    // println!("Read Joypad: {:#04x}", self.joypad.read_input());
-                }
-                self.joypad.read_input()
-            }
-            // 0xFF00 => 0xCF,
-            // 0xFF01 => self.mem[address],
-            // 0xFF02 => self.mem[address],
-            0xFF01..=0xFF02 => 0,
+            0xFF00 => self.joypad.read_input(),
+            0xFF01 => self.serial,
+            0xFF02 => 0x7E,
             DIVIDER => self.divider.counter,
             TIMER_COUNTER => self.timer.counter,
             TIMER_MODULO => self.timer.modulo,
@@ -303,10 +308,10 @@ impl Memory {
                 };
                 enabled | frequency
             }
-            0xFF08 => 0,
+            0xFF08..=0xFF0E => 0xFF,
             INTERRUPT_FLAG => self.interrupt_flags.to_byte(),
             0xFF10..=0xFF3F => {
-                // println!("Sound register not implemented: {:#06x}", address);
+                // Sound registers
                 0
             }
             0xFF40 => self.gpu.lcdc.to_byte(),
@@ -315,23 +320,13 @@ impl Memory {
             0xFF43 => self.gpu.scroll_x,
             0xFF44 => self.gpu.line,
             0xFF45 => self.gpu.line_check,
-            // 0xFF46 => 0,
-            0xFF47 => {
-                // self.gpu.get_bg_palette()
-                // println!("BG Palette: {:#04x}", self.gpu.get_bg_palette());
-                self.gpu.palettes[0]
-                // 0xFC
+            0xFF46 => {
+                println!("DMA Source: {:#06x}", self.dma_source);
+                0
             }
-            0xFF48 => {
-                // self.gpu.get_object_palette0()
-                self.gpu.palettes[1]
-                // 0xFF
-            }
-            0xFF49 => {
-                // self.gpu.get_object_palette1()
-                self.gpu.palettes[2]
-                // 0xFF
-            }
+            0xFF47 => self.gpu.palettes[0],
+            0xFF48 => self.gpu.palettes[1],
+            0xFF49 => self.gpu.palettes[2],
             0xFF4A => self.gpu.window_y,
             0xFF4B => self.gpu.window_x,
             0xFF4C => {
@@ -347,7 +342,7 @@ impl Memory {
                 return self.gpu.vram_bank | 0xFE;
             }
             0xFF55 => {
-                // println!("DMA Length: {:#04x}", self.dma_length);
+                println!("DMA Length: {:#04x}", self.dma_length);
                 self.dma_length as u8
             }
             0xFF68 => {
@@ -375,16 +370,20 @@ impl Memory {
                 self.gpu.object_palette[self.gpu.obpi as usize]
             }
             0xFF70 => self.wram_bank,
-            0xFF7E => 0,
+            0xFF7E => 0xFF,
+            0xFF7F => 0xFF,
+            0xFF7D => 0xFF,
             // _ => panic!("IO register not implemented: {:#06x}", address),
-            _ => 0,
+            _ => 0xFF,
         }
     }
 
     fn write_io(&mut self, address: usize, value: u8) {
         match address {
             0xFF00 => self.joypad.write(value),
-            0xFF01 => {}
+            0xFF01 => {
+                self.serial = value;
+            }
             0xFF02 => {}
             DIVIDER => {
                 self.divider.counter = 0;
@@ -408,7 +407,7 @@ impl Memory {
                 self.interrupt_flags.from_byte(value);
             }
             0xFF10..=0xFF3F => {
-                // println!("Sound register not implemented: {:#06x}", address);
+                // Sound registers
             }
             0xFF40 => {
                 self.gpu.lcdc.from_byte(value);
@@ -444,15 +443,8 @@ impl Memory {
             0xFF47 => {
                 self.gpu.set_bg_palette(value);
             }
-            0xFF48 => {
-                // self.gpu.set_object_palette0(value);
-                self.gpu.set_dmg_object_palette(value, 0)
-            }
-            0xFF49 => {
-                // println!("Object Palette 1: {:#04x}", value);
-                // self.gpu.set_object_palette1(value);
-                self.gpu.set_dmg_object_palette(value, 1)
-            }
+            0xFF48 => self.gpu.set_dmg_object_palette(value, 0),
+            0xFF49 => self.gpu.set_dmg_object_palette(value, 1),
             0xFF4A => {
                 self.gpu.window_y = value;
             }
@@ -532,10 +524,9 @@ impl Memory {
             }
             0xFF6C => {}
             0xFF70 => {
-                if value == 0 {
-                    self.wram_bank = 1;
-                } else {
-                    self.wram_bank = value & 0x07;
+                self.wram_bank = match value & 0x07 {
+                    0x01..=0x07 => value & 0x07,
+                    _ => 0x01,
                 }
                 // println!("WRAM Bank: {:#04x}", value);
             }

@@ -1,24 +1,23 @@
-use crate::cartridge::{Cartridge, CartridgeType};
+use crate::cartridge::Cartridge;
 
 pub struct RomOnlyCartridge {
-    cartridge: Cartridge,
+    rom: Vec<u8>,
+    cgb_flag: u8,
 }
 
 impl RomOnlyCartridge {
     pub fn new(rom: Vec<u8>) -> RomOnlyCartridge {
-        RomOnlyCartridge {
-            cartridge: Cartridge::new(rom, false, None),
-        }
+        let cgb_flag = rom[0x143];
+        RomOnlyCartridge { rom, cgb_flag }
     }
 }
 
-impl CartridgeType for RomOnlyCartridge {
-    fn set_sram(&mut self, _sram: Vec<u8>) {
-        return;
-    }
-
+impl Cartridge for RomOnlyCartridge {
     fn read(&self, address: u16) -> u8 {
-        self.cartridge.read(address)
+        match address {
+            0x0000..=0x7FFF => self.rom[address as usize],
+            _ => panic!("Address not implemented: {:#06x}", address),
+        }
     }
 
     fn write(&mut self, _address: u16, _value: u8) {
@@ -33,6 +32,6 @@ impl CartridgeType for RomOnlyCartridge {
         return;
     }
     fn get_cgb_flag(&self) -> u8 {
-        self.cartridge.get_cgb_flag()
+        self.cgb_flag
     }
 }

@@ -12,6 +12,7 @@ const TILESET_FIRST_BEGIN_ADDRESS: u16 = 0x8000;
 const TILESET_SECOND_BEGIN_ADDRESS: u16 = 0x9000;
 
 const NUMBER_OF_OBJECTS: usize = 40;
+
 #[cfg_attr(feature = "serialize", derive(Serialize))]
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum Color {
@@ -203,11 +204,8 @@ pub struct GPU {
     pub wly: u8,
     bg_priority_map: [BackgroundPriority; 65536],
     pub palettes: [u8; 3],
-    // pub dmg_object_palettes_raw: [u8; 2],
     palette_bg: [Pixel; 4],
     dmg_object_palettes: [[Pixel; 4]; 2],
-    sprite_palette0: [Color; 4],
-    sprite_palette1: [Color; 4],
     bg_map_attributes0: [u8; 1024],
     bg_map_attributes1: [u8; 1024],
     pub bgpi: u8,
@@ -215,9 +213,9 @@ pub struct GPU {
     pub obpi: u8,
     pub obpd: u8,
     pub bg_palette: [u8; 64],
-    pub palettes_bg: [[Pixel; 4]; 8],
+    palettes_bg: [[Pixel; 4]; 8],
     pub object_palette: [u8; 64],
-    pub palettes_object: [[Pixel; 4]; 8],
+    palettes_object: [[Pixel; 4]; 8],
     pub auto_increment_bg: bool,
     pub auto_increment_object: bool,
     pub vram_bank: u8,
@@ -247,11 +245,8 @@ impl GPU {
             wly: 0,
             bg_priority_map: [Default::default(); 65536],
             palettes: [0; 3],
-            // dmg_object_palettes_raw: [0; 2],
             palette_bg: [Default::default(); 4],
             dmg_object_palettes: [[Default::default(); 4]; 2],
-            sprite_palette0: [Color::Black; 4],
-            sprite_palette1: [Color::White; 4],
             bg_map_attributes0: [0; 1024],
             bg_map_attributes1: [0; 1024],
             bgpi: 0,
@@ -309,16 +304,7 @@ impl GPU {
         self.oam[index] = value;
     }
 
-    pub fn set_mode(&mut self, cartridge_type: u8) {
-        self.gb_mode = match cartridge_type {
-            0x80 | 0xC0 => GameBoyMode::CGB,
-            _ => GameBoyMode::DMG,
-        };
-    }
-
     pub fn set_bg_palette(&mut self, value: u8) {
-        // self.background_colors = BackgroundColors::from(value);
-        // println!("Set bg palette: {:#04x}", value);
         self.palettes[0] = value;
         self.palette_bg = [
             Color::from(value & 0b11).into(),
@@ -329,7 +315,6 @@ impl GPU {
     }
 
     pub fn set_dmg_object_palette(&mut self, value: u8, index: usize) {
-        // self.dmg_object_palettes_raw[index] = value;
         self.palettes[index + 1] = value;
         self.dmg_object_palettes[index] = [
             Color::from(value & 0b11).into(),
@@ -337,51 +322,6 @@ impl GPU {
             Color::from((value >> 4) & 0b11).into(),
             Color::from(value >> 6).into(),
         ]
-    }
-
-    pub fn set_object_palette0(&mut self, value: u8) {
-        self.sprite_palette0 = [
-            Color::from(value & 0b11),
-            Color::from((value >> 2) & 0b11),
-            Color::from((value >> 4) & 0b11),
-            Color::from(value >> 6),
-        ];
-    }
-
-    pub fn set_object_palette1(&mut self, value: u8) {
-        self.sprite_palette1 = [
-            Color::from(value & 0b11),
-            Color::from((value >> 2) & 0b11),
-            Color::from((value >> 4) & 0b11),
-            Color::from(value >> 6),
-        ];
-    }
-
-    pub fn get_bg_palette(&self) -> u8 {
-        let mut value = 0;
-        value |= u8::from(self.background_colors.0);
-        value |= u8::from(self.background_colors.1) << 2;
-        value |= u8::from(self.background_colors.2) << 4;
-        value |= u8::from(self.background_colors.3) << 6;
-        value
-    }
-
-    pub fn get_object_palette0(&self) -> u8 {
-        let mut value = 0;
-        value |= u8::from(self.sprite_palette0[0]);
-        value |= u8::from(self.sprite_palette0[1]) << 2;
-        value |= u8::from(self.sprite_palette0[2]) << 4;
-        value |= u8::from(self.sprite_palette0[3]) << 6;
-        value
-    }
-
-    pub fn get_object_palette1(&self) -> u8 {
-        let mut value = 0;
-        value |= u8::from(self.sprite_palette1[0]);
-        value |= u8::from(self.sprite_palette1[1]) << 2;
-        value |= u8::from(self.sprite_palette1[2]) << 4;
-        value |= u8::from(self.sprite_palette1[3]) << 6;
-        value
     }
 
     pub fn set_cgb_bg_palette(&mut self, value: u8) {
@@ -659,31 +599,12 @@ impl GPU {
                     false => self.dmg_object_palettes[palette_index],
                 };
 
-                // if tile_address == 0x8040 - VRAM_BEGIN as u16 {
-                //     // println!("Tile address: {:#04x}", tile_address);
-                //     // println!("Tile number: {:#04x}", object.tile);
-                //     println!(
-                //         "palette: {:#04x}",
-                //         self.palettes[object.palette as usize + 1]
-                //     );
-                //     println!("color index: {:#04x}", color_index);
-                //     println!(
-                //         "palette: {:04x}",
-                //         (self.palettes[object.palette as usize + 1] >> color_index * 2) & 0x03
-                //     );
-                //     println!(
-                //         "palette index: {:?}",
-                //         self.dmg_object_palettes[palette_index][color_index as usize]
-                //     );
-                // }
-
-                let temp = (self.palettes[object.palette as usize + 1] >> color_index * 2) & 0x03;
-
-                // let p_index = self.dmg_object_palettes[palette_index][color_index as usize];
+                let palette_index =
+                    (self.palettes[object.palette as usize + 1] >> color_index * 2) & 0x03;
 
                 if color_index != 0 {
                     let offset = self.line as usize + 256 * x_offset as usize;
-                    let pixel = palette[temp as usize];
+                    let pixel = palette[palette_index as usize];
 
                     if !self.background_has_priority(object.priority, offset) {
                         self.draw_pixel_to_buffer(x_offset as usize, self.line as usize, pixel);
@@ -936,7 +857,6 @@ impl GPU {
         if self.gb_mode == GameBoyMode::DMG {
             objects.sort_by_key(|object| object.x);
         }
-        // objects.sort_by_key(|object| object.x);
         objects
     }
 
@@ -990,16 +910,6 @@ impl GPU {
         TILESET_SECOND_BEGIN_ADDRESS.wrapping_add(((tile_number as i8) as u16).wrapping_mul(16))
     }
 
-    fn get_background_color(&self, color_index: u8) -> Color {
-        match color_index {
-            0 => self.background_colors.0,
-            1 => self.background_colors.1,
-            2 => self.background_colors.2,
-            3 => self.background_colors.3,
-            _ => panic!("Invalid color index: {}", color_index),
-        }
-    }
-
     fn draw_pixel_to_buffer(&mut self, x: usize, y: usize, pixel: Pixel) {
         let canvas_buffer_offset = (x * 4) + (y * SCREEN_WIDTH * 4);
 
@@ -1027,18 +937,12 @@ fn get_color_index(tile_data: u8, tile_color_data: u8, pixel_index: u8) -> u8 {
 }
 
 pub fn rgb555_to_rgb888(first: u8, second: u8) -> Pixel {
-    // println!("first: {:#04x}, second: {:#04x}", first, second);
-    let r_5 = (first & 0x1F);
-    let g_5 = ((first >> 5) | ((second & 0x03) << 3));
-    let b_5 = (second >> 2);
-    // println!("r: {:#04x}, g: {:#04x}, b: {:#04x}", r, g, b);
+    let r_5 = first & 0x1F;
+    let g_5 = (first >> 5) | ((second & 0x03) << 3);
+    let b_5 = second >> 2;
 
     let r = (r_5 << 3) | (r_5 >> 2);
     let g = (g_5 << 3) | (g_5 >> 2);
     let b = (b_5 << 3) | (b_5 >> 2);
-    if second == 0x78 {
-        println!("first: {:#04x}, second: {:#04x}", first, second);
-        println!("r: {:#04x}, g: {:#04x}, b: {:#04x}", r, g, b);
-    }
     Pixel { r, g, b }
 }

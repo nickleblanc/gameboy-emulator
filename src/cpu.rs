@@ -4,7 +4,6 @@ mod registers;
 
 use crate::mmu::Memory;
 
-use std::fs::OpenOptions;
 use std::io::BufWriter;
 use std::io::Write;
 

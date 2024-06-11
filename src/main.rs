@@ -15,7 +15,6 @@ use rfd::FileDialog;
 use cpu::CPU;
 use mmu::Memory;
 
-use std::io::Read;
 use std::thread::sleep;
 use std::{fs::File, time::Duration, time::Instant};
 
@@ -32,7 +31,7 @@ const SCREEN_HEIGHT: u32 = 144;
 const WINDOW_WIDTH: u32 = SCREEN_WIDTH * SCALE;
 const WINDOW_HEIGHT: u32 = SCREEN_HEIGHT * SCALE;
 
-const DEBUG: bool = true;
+const DEBUG: bool = false;
 
 fn main() {
     let log_file = OpenOptions::new()
@@ -58,24 +57,14 @@ fn main() {
         .add_filter("Gameboy ROM", &["gb", "gbc"])
         .pick_file();
 
+    window.raise();
+
     let file_path = match file_path {
         Some(path) => path,
         None => panic!("No file selected"),
     };
 
-    let mut cartridge = cartridge::new_cartridge(file_path);
-
-    let save_file = File::open("./test-roms/Pokemon - Silver.sav");
-    match save_file {
-        Ok(mut save_file) => {
-            let mut save_file_contents = Vec::new();
-            save_file.read_to_end(&mut save_file_contents).unwrap();
-            cartridge.set_sram(save_file_contents);
-        }
-        Err(_) => {
-            println!("No save file found")
-        }
-    };
+    let cartridge = cartridge::new_cartridge(&file_path);
 
     let cgb_flag = cartridge.get_cgb_flag();
 
@@ -193,8 +182,7 @@ fn sdl2(cpu: &mut CPU, window: Window, sdl_context: sdl2::Sdl, log_file: &mut Bu
         while cycles_elapsed <= cycles_to_run as usize {
             cycles_elapsed += cpu.step() as usize;
             if DEBUG {
-                // cpu.log(log_file);
-                // println!("line: {}", cpu.mem.gpu.line)
+                cpu.log(log_file);
             }
         }
         cycles_elapsed_in_frame += cycles_elapsed;
