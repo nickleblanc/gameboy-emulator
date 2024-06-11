@@ -10,7 +10,7 @@ Game Boy (DMG) and Game Boy Color (CGB) emulator written from scratch in Rust. I
 
 ### Download
 
-Visit the releases page and download the latest version. Currently the only binary availabe is for MacOS.
+Visit the releases page and download the latest version. Currently the only binary available is for MacOS.
 
 ### Run
 
@@ -29,15 +29,15 @@ After opening the emulator, a file dialog will open and a ROM can be selected.
 
 ### Saves
 
-Save files use the following naming convention: rom-file-name.sav
 A save file can be provided or the emulator will create it's own.
+Save files use the following naming convention: rom-file-name.sav
 
 ## Tested Games
 
 - [x] Tetris
 - [x] Dr. Mario
 - [x] Pokemon Red
-- [] Pokemon Silver
+- [ ] Pokemon Silver
   - Glitch when opening start menu
-- [] Pokemon Crystal
+- [ ] Pokemon Crystal
   - HDMA not implemented
