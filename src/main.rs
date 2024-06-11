@@ -44,15 +44,6 @@ fn main() {
 
     let (mut window, sdl_context) = initialize_sdl2();
 
-    // let mut rom = File::open("./test-roms/Pokemon - Red.gb").expect("failed to open file");
-    // let mut rom = File::open("./test-roms/Pokemon - Silver.gbc").expect("failed to open file");
-    // let mut rom = File::open("./test-roms/Pokemon - Crystal.gbc").expect("failed to open file");");
-    // let mut rom = File::open("./test-roms/dmg-acid2.gb").expect("failed to open file");
-    // let mut rom = File::open("./test-roms/cgb-acid2.gbc").expect("failed to open file");
-    // let mut rom = File::open("./test-roms/instr_timing.gb").expect("failed to open file");
-    // let mut rom = File::open("./test-roms/mooneye/acceptance/ppu/lcdon_write_timing-GS.gb")
-    // .expect("failed to open file");
-
     let file_path = FileDialog::new()
         .add_filter("Gameboy ROM", &["gb", "gbc"])
         .pick_file();
@@ -68,7 +59,14 @@ fn main() {
 
     let cgb_flag = cartridge.get_cgb_flag();
 
-    let boot_rom = fs::read("./test-roms/cgb_boot.bin");
+    let current_exe = std::env::current_exe().unwrap();
+
+    let exe_path = match current_exe.parent() {
+        Some(path) => path,
+        None => panic!("Failed to get exe path"),
+    };
+
+    let boot_rom = fs::read(exe_path.join("boot.bin"));
 
     let boot_rom_contents = match boot_rom {
         Ok(rom) => Some(rom),
