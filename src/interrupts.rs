@@ -26,7 +26,7 @@ impl InterruptFlags {
     }
 
     pub fn to_byte(&self) -> u8 {
-        let mut result = 0;
+        let mut result = 0xE0;
         if self.vblank {
             result |= 0b00001;
         }
