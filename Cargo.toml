@@ -7,7 +7,10 @@ edition = "2021"
 
 [dependencies]
 minifb = "0.25"
-sdl2 = "0.32.1"
 rand = "0.8.4"
 rfd = "0.14.1"
 memmap2 = "0.9.4"
+
+[dependencies.sdl2]
+features = ["bundled"]
+version = "0.36.0"
