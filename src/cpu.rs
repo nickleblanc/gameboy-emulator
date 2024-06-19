@@ -19,6 +19,7 @@ pub struct CPU {
     pub mem: Memory,
     ime: bool,
     is_halted: bool,
+    ime_next: bool,
 }
 
 impl CPU {
@@ -30,6 +31,7 @@ impl CPU {
             mem,
             ime: false,
             is_halted: false,
+            ime_next: false,
         }
     }
 
@@ -94,13 +96,21 @@ impl CPU {
             self.mem.write_byte(0xFF02, 0);
         }
 
+        if self.ime_next {
+            self.ime = true;
+            self.ime_next = false;
+        }
+
         let instruction = self.get_instruction();
         let (next_pc, mut cycles) = self.execute(instruction);
 
         self.mem.step(cycles);
 
-        if self.mem.interrupt_called() {
+        if self.is_halted && self.mem.interrupt_called() {
             self.is_halted = false;
+            if !self.ime {
+                self.pc = self.pc.wrapping_sub(1);
+            }
         }
         if !self.is_halted {
             self.pc = next_pc;
@@ -349,7 +359,8 @@ impl CPU {
                 (self.pc.wrapping_add(1), 4)
             }
             Instruction::EI => {
-                self.ime = true;
+                // self.ime = true;
+                self.ime_next = true;
                 // self.mem.write_byte(0xFFFF, )
                 (self.pc.wrapping_add(1), 4)
             }
