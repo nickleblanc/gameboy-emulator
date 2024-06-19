@@ -1,11 +1,15 @@
-use std;
-
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct FlagsRegister {
     pub z: bool,
     pub n: bool,
     pub h: bool,
     pub c: bool,
+}
+
+impl Default for FlagsRegister {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 const ZERO_FLAG_BYTE_POSITION: u8 = 7;

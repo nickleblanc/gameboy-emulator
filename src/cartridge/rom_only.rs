@@ -20,17 +20,14 @@ impl Cartridge for RomOnlyCartridge {
         }
     }
 
-    fn write(&mut self, _address: u16, _value: u8) {
-        return;
-    }
+    fn write(&mut self, _address: u16, _value: u8) {}
 
     fn read_ram(&self, _address: u16) -> u8 {
-        return 0;
+        0
     }
 
-    fn write_ram(&mut self, _address: u16, _value: u8) {
-        return;
-    }
+    fn write_ram(&mut self, _address: u16, _value: u8) {}
+
     fn get_cgb_flag(&self) -> u8 {
         self.cgb_flag
     }

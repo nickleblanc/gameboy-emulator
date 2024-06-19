@@ -49,7 +49,7 @@ impl Timer {
 
         self.cycles += cycles as usize;
         self.has_overflowed = if self.cycles > self.frequency.cycles_per_tick() {
-            self.cycles = self.cycles % self.frequency.cycles_per_tick();
+            self.cycles %= self.frequency.cycles_per_tick();
             let (value, overflow) = self.counter.overflowing_add(1);
             self.counter = value;
             overflow

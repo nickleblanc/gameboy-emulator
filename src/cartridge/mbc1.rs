@@ -19,16 +19,10 @@ impl MBC1 {
         let cartridge_type = rom[0x147];
         let rom_size = rom[0x148];
         let cgb_flag = rom[0x143];
-        let has_ram = match cartridge_type {
-            0x02 | 0x03 => true,
-            _ => false,
-        };
+        let has_ram = matches!(cartridge_type, 0x02 | 0x03);
         let ram_size = get_ram_size(&rom);
         let ram = if has_ram {
-            match ram_size {
-                Some(size) => Some(Save::new(path, size)),
-                None => None,
-            }
+            ram_size.map(|size| Save::new(path, size))
         } else {
             None
         };
@@ -73,7 +67,7 @@ impl Cartridge for MBC1 {
             0x4000..=0x5FFF => match self.mode {
                 0 => {
                     if self.rom_size >= 0x05 {
-                        self.rom_bank = self.rom_bank | ((value & 0x03) << 5);
+                        self.rom_bank |= (value & 0x03) << 5;
                     }
                 }
                 1 => {

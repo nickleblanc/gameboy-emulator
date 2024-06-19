@@ -23,7 +23,7 @@ impl Lcdc {
         }
     }
 
-    pub fn to_byte(&self) -> u8 {
+    pub fn read(&self) -> u8 {
         let mut byte = 0;
         if self.display_enabled {
             byte |= 1 << 7;
@@ -52,7 +52,7 @@ impl Lcdc {
         byte
     }
 
-    pub fn from_byte(&mut self, byte: u8) {
+    pub fn write(&mut self, byte: u8) {
         self.display_enabled = byte & (1 << 7) != 0;
         self.window_tile_map = byte & (1 << 6) != 0;
         self.window_display_enabled = byte & (1 << 5) != 0;

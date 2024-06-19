@@ -1,5 +1,5 @@
 use crate::cartridge::Cartridge;
-use crate::gpu::{stat::Mode, GameBoyMode, InterruptRequest, GPU};
+use crate::gpu::{stat::Mode, GameBoyMode, Gpu};
 use crate::interrupts::InterruptFlags;
 use crate::joypad::Joypad;
 use crate::timer::{Frequency, Timer};
@@ -55,8 +55,8 @@ const INTERRUPT_ENABLE: usize = 0xFFFF;
 
 #[derive(Debug, PartialEq)]
 enum DmaMode {
-    GDMA,
-    HDMA,
+    Gdma,
+    Hdma,
 }
 
 pub struct Memory {
@@ -66,7 +66,7 @@ pub struct Memory {
     pub interrupt_flags: InterruptFlags,
     timer: Timer,
     divider: Timer,
-    pub gpu: GPU,
+    pub gpu: Gpu,
     cartridge: Box<dyn Cartridge>,
     pub joypad: Joypad,
     key0: u8,
@@ -94,14 +94,14 @@ impl Memory {
             Some(boot) => {
                 boot_rom = boot;
                 boot_active = true;
-                gb_mode = GameBoyMode::CGB;
+                gb_mode = GameBoyMode::Cgb;
             }
             None => {
                 boot_rom = vec![];
                 boot_active = false;
                 gb_mode = match cartridge.get_cgb_flag() {
-                    0x80 | 0xC0 => GameBoyMode::CGB,
-                    _ => GameBoyMode::DMG,
+                    0x80 | 0xC0 => GameBoyMode::Cgb,
+                    _ => GameBoyMode::Dmg,
                 };
             }
         }
@@ -113,7 +113,7 @@ impl Memory {
             interrupt_flags: InterruptFlags::new(),
             timer: Timer::new(Frequency::F4096),
             divider,
-            gpu: GPU::new(gb_mode, boot_active),
+            gpu: Gpu::new(gb_mode, boot_active),
             cartridge,
             joypad: Joypad::new(),
             key0: 0,
@@ -123,13 +123,13 @@ impl Memory {
             dma_source: 0,
             dma_destination: 0,
             dma_length: 0,
-            dma_mode: DmaMode::GDMA,
+            dma_mode: DmaMode::Gdma,
             serial: 0,
         }
     }
 
     pub fn step(&mut self, cycles: u8) {
-        if self.dma_mode == DmaMode::HDMA {
+        if self.dma_mode == DmaMode::Hdma {
             self.hdma_step();
             // panic!("HDMA not implemented");
         } else {
@@ -177,7 +177,7 @@ impl Memory {
         let destination = self.dma_destination;
 
         for i in 0..(self.dma_length * 16) {
-            let byte = self.read_byte(source + i as u16);
+            let byte = self.read_byte(source + i);
             // println!(
             //     "DMA: {:#06x} -> {:#06x} = {:#04x}",
             //     source + i as u16,
@@ -188,7 +188,7 @@ impl Memory {
             //     "Destination: {:#06x}",
             //     0x8000 | ((destination & 0x1FFF) + i as u16) as u16
             // );
-            self.write_byte(0x8000 | (destination & 0x1FFF) + i as u16, byte);
+            self.write_byte(0x8000 | ((destination & 0x1FFF) + i), byte);
         }
 
         self.dma_length = 0;
@@ -204,8 +204,8 @@ impl Memory {
         let destination = self.dma_destination;
 
         for i in 0..(self.dma_length * 16) {
-            let byte = self.read_byte(source + i as u16);
-            self.write_byte(0x8000 | (destination & 0x1FFF) + i as u16, byte);
+            let byte = self.read_byte(source + i);
+            self.write_byte(0x8000 | ((destination & 0x1FFF) + i), byte);
         }
         self.dma_length = 0;
     }
@@ -225,7 +225,7 @@ impl Memory {
                 if self.boot_active && address <= 0xFF {
                     return self.boot_rom[address];
                 }
-                if self.boot_active && address >= 0x200 && address <= 0x8FF {
+                if self.boot_active && (0x200..=0x8FF).contains(&address) {
                     return self.boot_rom[address];
                 }
                 self.cartridge.read(address as u16)
@@ -247,7 +247,7 @@ impl Memory {
             UNUSED_BEGIN..=UNUSED_END => 0xFF,
             IO_REGISTERS_BEGIN..=IO_REGISTERS_END => self.read_io(address),
             HIGH_RAM_BEGIN..=HIGH_RAM_END => self.hram[address - HIGH_RAM_BEGIN],
-            INTERRUPT_ENABLE => self.interrupt_enable.to_byte(),
+            INTERRUPT_ENABLE => self.interrupt_enable.read(),
             _ => panic!("Memory read not implemented: {:#06x}", address),
         }
     }
@@ -262,8 +262,7 @@ impl Memory {
                 self.cartridge.write(address as u16, value);
             }
             VRAM_BEGIN..=VRAM_END => {
-                self.gpu
-                    .write_vram(address as usize - VRAM_BEGIN as usize, value);
+                self.gpu.write_vram(address - VRAM_BEGIN, value);
             }
             EXTERNAL_RAM_BEGIN..=EXTERNAL_RAM_END => {
                 self.cartridge.write_ram(address as u16, value);
@@ -290,7 +289,7 @@ impl Memory {
             }
             INTERRUPT_ENABLE => {
                 println!("Interrupt Enable: {:#04x}", value);
-                self.interrupt_enable.from_byte(value);
+                self.interrupt_enable.write(value);
             }
             _ => {
                 panic!("Memory write not implemented: {:#06x}", address)
@@ -317,15 +316,15 @@ impl Memory {
                 enabled | frequency
             }
             0xFF08..=0xFF0E => 0xFF,
-            INTERRUPT_FLAG => self.interrupt_flags.to_byte(),
+            INTERRUPT_FLAG => self.interrupt_flags.read(),
             0xFF10..=0xFF3F => {
                 // Sound registers
                 0
             }
-            0xFF40 => self.gpu.lcdc.to_byte(),
+            0xFF40 => self.gpu.lcdc.read(),
             LCD_STAT => {
                 // println!("LCD Stat Read: {:#04x}", self.gpu.stat.to_byte());
-                self.gpu.stat.to_byte()
+                self.gpu.stat.read()
             }
             0xFF42 => self.gpu.scroll_y,
             0xFF43 => self.gpu.scroll_x,
@@ -350,7 +349,7 @@ impl Memory {
             }
             0xFF4F => {
                 // println!("VRAM Bank: {:#04x}", self.gpu.vram_bank);
-                return self.gpu.vram_bank | 0xFE;
+                self.gpu.vram_bank | 0xFE
             }
             0xFF55 => {
                 // println!("DMA Length: {:#04x}", self.dma_length);
@@ -421,13 +420,13 @@ impl Memory {
             0xFF08..=0xFF0E => {}
             INTERRUPT_FLAG => {
                 // println!("Interrupt Flag: {:#04x}", value);
-                self.interrupt_flags.from_byte(value);
+                self.interrupt_flags.write(value);
             }
             0xFF10..=0xFF3F => {
                 // Sound registers
             }
             0xFF40 => {
-                self.gpu.lcdc.from_byte(value);
+                self.gpu.lcdc.write(value);
                 println!("LCDC: {:#04x}", value);
                 if value & 0x80 == 0 {
                     self.gpu.stat.mode = Mode::HorizontalBlank;
@@ -439,7 +438,7 @@ impl Memory {
             }
             LCD_STAT => {
                 // println!("LCD Stat: {:#04x}", value);
-                self.gpu.stat.from_byte(value);
+                self.gpu.stat.write(value);
             }
             0xFF42 => {
                 // Viewport Y Offset
@@ -474,9 +473,9 @@ impl Memory {
                 println!("Key0 Write: {:#04x}", value);
                 println!("mode: {:?}", self.gpu.gb_mode);
                 self.gpu.gb_mode = if value == 0x80 || value == 0xC0 {
-                    GameBoyMode::CGB
+                    GameBoyMode::Cgb
                 } else {
-                    GameBoyMode::DMG
+                    GameBoyMode::Dmg
                 };
 
                 println!("mode: {:?}", self.gpu.gb_mode);
@@ -514,9 +513,9 @@ impl Memory {
             0xFF55 => {
                 // self.dma_length = (((value & 0x7F) + 1) as u16) << 4;
                 self.dma_mode = if value & 0x80 != 0 {
-                    DmaMode::HDMA
+                    DmaMode::Hdma
                 } else {
-                    DmaMode::GDMA
+                    DmaMode::Gdma
                 };
                 // println!("DMA Mode: {:?}", self.dma_mode);
                 self.dma_length = (value & 0x7F) as u16;

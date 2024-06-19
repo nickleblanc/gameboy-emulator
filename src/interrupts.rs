@@ -17,7 +17,7 @@ impl InterruptFlags {
         }
     }
 
-    pub fn from_byte(&mut self, byte: u8) {
+    pub fn write(&mut self, byte: u8) {
         self.vblank = (byte & 0b00001) != 0;
         self.lcd_stat = (byte & 0b00010) != 0;
         self.timer = (byte & 0b00100) != 0;
@@ -25,7 +25,7 @@ impl InterruptFlags {
         self.joypad = (byte & 0b10000) != 0;
     }
 
-    pub fn to_byte(&self) -> u8 {
+    pub fn read(&self) -> u8 {
         let mut result = 0xE0;
         if self.vblank {
             result |= 0b00001;

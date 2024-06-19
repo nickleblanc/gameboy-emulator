@@ -27,7 +27,7 @@ impl Stat {
         }
     }
 
-    pub fn to_byte(&self) -> u8 {
+    pub fn read(&self) -> u8 {
         let mut byte = 0;
         if self.coincidence_interrupt {
             byte |= 1 << 6;
@@ -47,7 +47,7 @@ impl Stat {
         byte | self.mode as u8
     }
 
-    pub fn from_byte(&mut self, byte: u8) {
+    pub fn write(&mut self, byte: u8) {
         self.coincidence_interrupt = byte & (1 << 6) != 0;
         self.oam_interrupt = byte & (1 << 5) != 0;
         self.v_blank_interrupt = byte & (1 << 4) != 0;

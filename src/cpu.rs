@@ -12,7 +12,7 @@ use instructions::{
     JumpCondition, LoadByteSource, LoadByteTarget, LoadType, LoadWordTarget, PrefixTarget,
     StackTarget,
 };
-pub struct CPU {
+pub struct Cpu {
     registers: registers::Registers,
     sp: u16,
     pc: u16,
@@ -22,9 +22,9 @@ pub struct CPU {
     ime_next: bool,
 }
 
-impl CPU {
-    pub fn new(mem: Memory) -> CPU {
-        CPU {
+impl Cpu {
+    pub fn new(mem: Memory) -> Cpu {
+        Cpu {
             registers: registers::Registers::new(),
             sp: 0x0000,
             pc: 0x0000,
@@ -159,7 +159,7 @@ impl CPU {
 
     fn execute(&mut self, instruction: Instruction) -> (u16, u8) {
         match instruction {
-            Instruction::ADC(target) => {
+            Instruction::Adc(target) => {
                 match target {
                     ArithmeticTarget::A => self.adc(self.registers.a),
                     ArithmeticTarget::B => self.adc(self.registers.b),
@@ -177,7 +177,7 @@ impl CPU {
                     _ => (self.pc.wrapping_add(1), 4),
                 }
             }
-            Instruction::ADD(target) => {
+            Instruction::Add(target) => {
                 match target {
                     ArithmeticTarget::A => self.add(self.registers.a),
                     ArithmeticTarget::B => self.add(self.registers.b),
@@ -195,7 +195,7 @@ impl CPU {
                     _ => (self.pc.wrapping_add(1), 4),
                 }
             }
-            Instruction::ADDHL(target) => {
+            Instruction::AddHl(target) => {
                 match target {
                     ADDHLTarget::BC => self.add_hl(self.registers.get_bc()),
                     ADDHLTarget::DE => self.add_hl(self.registers.get_de()),
@@ -204,7 +204,7 @@ impl CPU {
                 }
                 (self.pc.wrapping_add(1), 8)
             }
-            Instruction::ADDSP => {
+            Instruction::AddSp => {
                 let value = self.read_next_byte() as i8 as i16 as u16;
                 let result = self.sp.wrapping_add(value);
                 self.registers.f.z = false;
@@ -214,7 +214,7 @@ impl CPU {
                 self.sp = result;
                 (self.pc.wrapping_add(2), 8)
             }
-            Instruction::AND(target) => {
+            Instruction::And(target) => {
                 match target {
                     ArithmeticTarget::A => self.and(self.registers.a),
                     ArithmeticTarget::B => self.and(self.registers.b),
@@ -232,7 +232,7 @@ impl CPU {
                     _ => (self.pc.wrapping_add(1), 8),
                 }
             }
-            Instruction::BIT(register, bit_position) => {
+            Instruction::Bit(register, bit_position) => {
                 match register {
                     PrefixTarget::A => self.test_bit(self.registers.a, bit_position),
                     PrefixTarget::B => self.test_bit(self.registers.b, bit_position),
@@ -251,7 +251,7 @@ impl CPU {
                 };
                 (self.pc.wrapping_add(2), cycles)
             }
-            Instruction::CALL(condition) => {
+            Instruction::Call(condition) => {
                 let jump_condition = match condition {
                     JumpCondition::NotZero => !self.registers.f.z,
                     JumpCondition::Zero => self.registers.f.z,
@@ -261,13 +261,13 @@ impl CPU {
                 };
                 self.call(jump_condition)
             }
-            Instruction::CCF => {
+            Instruction::Ccf => {
                 self.registers.f.n = false;
                 self.registers.f.h = false;
                 self.registers.f.c = !self.registers.f.c;
                 (self.pc.wrapping_add(1), 4)
             }
-            Instruction::CP(target) => {
+            Instruction::Cp(target) => {
                 match target {
                     ArithmeticTarget::A => self.cp(self.registers.a),
                     ArithmeticTarget::B => self.cp(self.registers.b),
@@ -285,13 +285,13 @@ impl CPU {
                     _ => (self.pc.wrapping_add(1), 4),
                 }
             }
-            Instruction::CPL => {
+            Instruction::Cpl => {
                 self.registers.a = !self.registers.a;
                 self.registers.f.n = true;
                 self.registers.f.h = true;
                 (self.pc.wrapping_add(1), 4)
             }
-            Instruction::DAA => {
+            Instruction::Daa => {
                 let flags = self.registers.f;
                 let mut carry = false;
 
@@ -316,7 +316,7 @@ impl CPU {
                 self.registers.f.c = carry;
                 (self.pc.wrapping_add(1), 4)
             }
-            Instruction::DEC(target) => {
+            Instruction::Dec(target) => {
                 match target {
                     IncDecTarget::A => self.registers.a = self.dec(self.registers.a),
                     IncDecTarget::B => self.registers.b = self.dec(self.registers.b),
@@ -325,7 +325,7 @@ impl CPU {
                     IncDecTarget::E => self.registers.e = self.dec(self.registers.e),
                     IncDecTarget::H => self.registers.h = self.dec(self.registers.h),
                     IncDecTarget::L => self.registers.l = self.dec(self.registers.l),
-                    IncDecTarget::HLI => {
+                    IncDecTarget::Hli => {
                         let hl = self.registers.get_hl();
                         let value = self.dec(self.mem.read_byte(hl));
                         self.mem.write_byte(hl, value);
@@ -345,7 +345,7 @@ impl CPU {
                     IncDecTarget::SP => self.sp = self.dec_16bit(self.sp),
                 }
                 let cycles = match target {
-                    IncDecTarget::HLI => 12,
+                    IncDecTarget::Hli => 12,
                     IncDecTarget::BC => 8,
                     IncDecTarget::DE => 8,
                     IncDecTarget::HL => 8,
@@ -354,21 +354,21 @@ impl CPU {
                 };
                 (self.pc.wrapping_add(1), cycles)
             }
-            Instruction::DI => {
+            Instruction::Di => {
                 self.ime = false;
                 (self.pc.wrapping_add(1), 4)
             }
-            Instruction::EI => {
+            Instruction::Ei => {
                 // self.ime = true;
                 self.ime_next = true;
                 // self.mem.write_byte(0xFFFF, )
                 (self.pc.wrapping_add(1), 4)
             }
-            Instruction::HALT => {
+            Instruction::Halt => {
                 self.is_halted = true;
                 (self.pc.wrapping_add(1), 4)
             }
-            Instruction::INC(target) => {
+            Instruction::Inc(target) => {
                 match target {
                     IncDecTarget::A => self.registers.a = self.inc(self.registers.a),
                     IncDecTarget::B => self.registers.b = self.inc(self.registers.b),
@@ -377,7 +377,7 @@ impl CPU {
                     IncDecTarget::E => self.registers.e = self.inc(self.registers.e),
                     IncDecTarget::H => self.registers.h = self.inc(self.registers.h),
                     IncDecTarget::L => self.registers.l = self.inc(self.registers.l),
-                    IncDecTarget::HLI => {
+                    IncDecTarget::Hli => {
                         let hl = self.registers.get_hl();
                         let value = self.inc(self.mem.read_byte(hl));
                         self.mem.write_byte(hl, value);
@@ -397,7 +397,7 @@ impl CPU {
                     IncDecTarget::SP => self.sp = self.inc_16bit(self.sp),
                 }
                 let cycles = match target {
-                    IncDecTarget::HLI => 12,
+                    IncDecTarget::Hli => 12,
                     IncDecTarget::BC => 8,
                     IncDecTarget::DE => 8,
                     IncDecTarget::HL => 8,
@@ -406,7 +406,7 @@ impl CPU {
                 };
                 (self.pc.wrapping_add(1), cycles)
             }
-            Instruction::JP(condition) => {
+            Instruction::Jp(condition) => {
                 let jump_condition = match condition {
                     JumpCondition::NotZero => !self.registers.f.z,
                     JumpCondition::Zero => self.registers.f.z,
@@ -416,8 +416,8 @@ impl CPU {
                 };
                 self.jump(jump_condition)
             }
-            Instruction::JPHL => (self.registers.get_hl(), 4),
-            Instruction::JR(condition) => {
+            Instruction::JpHl => (self.registers.get_hl(), 4),
+            Instruction::Jr(condition) => {
                 let jump_condition = match condition {
                     JumpCondition::NotZero => !self.registers.f.z,
                     JumpCondition::Zero => self.registers.f.z,
@@ -427,7 +427,7 @@ impl CPU {
                 };
                 self.jump_relative(jump_condition)
             }
-            Instruction::LD(target) => match target {
+            Instruction::Ld(target) => match target {
                 LoadType::Byte(target, source) => {
                     let source_value = match source {
                         LoadByteSource::A => self.registers.a,
@@ -473,12 +473,12 @@ impl CPU {
                     match target {
                         IndirectTarget::BC => self.mem.write_byte(self.registers.get_bc(), a),
                         IndirectTarget::DE => self.mem.write_byte(self.registers.get_de(), a),
-                        IndirectTarget::HLI => {
+                        IndirectTarget::Hli => {
                             let hl = self.registers.get_hl();
                             self.registers.set_hl(hl.wrapping_add(1));
                             self.mem.write_byte(hl, a);
                         }
-                        IndirectTarget::HLD => {
+                        IndirectTarget::Hld => {
                             let hl = self.registers.get_hl();
                             self.registers.set_hl(hl.wrapping_sub(1));
                             self.mem.write_byte(hl, a);
@@ -501,12 +501,12 @@ impl CPU {
                     self.registers.a = match target {
                         IndirectTarget::BC => self.mem.read_byte(self.registers.get_bc()),
                         IndirectTarget::DE => self.mem.read_byte(self.registers.get_de()),
-                        IndirectTarget::HLI => {
+                        IndirectTarget::Hli => {
                             let hl = self.registers.get_hl();
                             self.registers.set_hl(hl.wrapping_add(1));
                             self.mem.read_byte(hl)
                         }
-                        IndirectTarget::HLD => {
+                        IndirectTarget::Hld => {
                             let hl = self.registers.get_hl();
                             self.registers.set_hl(hl.wrapping_sub(1));
                             self.mem.read_byte(hl)
@@ -558,8 +558,8 @@ impl CPU {
                     (self.pc.wrapping_add(3), 20)
                 }
             },
-            Instruction::NOP => (self.pc.wrapping_add(1), 4),
-            Instruction::OR(target) => {
+            Instruction::Nop => (self.pc.wrapping_add(1), 4),
+            Instruction::Or(target) => {
                 match target {
                     ArithmeticTarget::A => self.or(self.registers.a),
                     ArithmeticTarget::B => self.or(self.registers.b),
@@ -577,7 +577,7 @@ impl CPU {
                     _ => (self.pc.wrapping_add(1), 4),
                 }
             }
-            Instruction::POP(target) => {
+            Instruction::Pop(target) => {
                 let value = self.pop();
                 match target {
                     StackTarget::AF => self.registers.set_af(value),
@@ -587,7 +587,7 @@ impl CPU {
                 }
                 (self.pc.wrapping_add(1), 12)
             }
-            Instruction::PUSH(target) => {
+            Instruction::Push(target) => {
                 let value = match target {
                     StackTarget::AF => self.registers.get_af(),
                     StackTarget::BC => self.registers.get_bc(),
@@ -597,7 +597,7 @@ impl CPU {
                 self.push(value);
                 (self.pc.wrapping_add(1), 16)
             }
-            Instruction::RES(register, bit_position) => {
+            Instruction::Res(register, bit_position) => {
                 match register {
                     PrefixTarget::A => {
                         self.registers.a = self.reset_bit(self.registers.a, bit_position)
@@ -635,7 +635,7 @@ impl CPU {
                 };
                 (self.pc.wrapping_add(2), cycles)
             }
-            Instruction::RET(condition) => {
+            Instruction::Ret(condition) => {
                 let jump_condition = match condition {
                     JumpCondition::NotZero => !self.registers.f.z,
                     JumpCondition::Zero => self.registers.f.z,
@@ -654,11 +654,11 @@ impl CPU {
                 };
                 (next_pc, cycles)
             }
-            Instruction::RETI => {
+            Instruction::Reti => {
                 self.ime = true;
                 (self.pop(), 16)
             }
-            Instruction::RL(register) => {
+            Instruction::Rl(register) => {
                 match register {
                     PrefixTarget::A => {
                         self.registers.a = self.rotate_left_through_carry_set_zero(self.registers.a)
@@ -694,11 +694,11 @@ impl CPU {
                 };
                 (self.pc.wrapping_add(2), cycles)
             }
-            Instruction::RLA => {
+            Instruction::Rla => {
                 self.registers.a = self.rotate_left_through_carry_retain_zero(self.registers.a);
                 (self.pc.wrapping_add(1), 4)
             }
-            Instruction::RLC(register) => {
+            Instruction::Rlc(register) => {
                 match register {
                     PrefixTarget::A => {
                         self.registers.a = self.rotate_left_set_zero(self.registers.a)
@@ -734,11 +734,11 @@ impl CPU {
                 };
                 (self.pc.wrapping_add(2), cycles)
             }
-            Instruction::RLCA => {
+            Instruction::Rlca => {
                 self.registers.a = self.rotate_left_retain_zero(self.registers.a);
                 (self.pc.wrapping_add(1), 4)
             }
-            Instruction::RR(register) => {
+            Instruction::Rr(register) => {
                 match register {
                     PrefixTarget::A => {
                         self.registers.a =
@@ -781,11 +781,11 @@ impl CPU {
                 };
                 (self.pc.wrapping_add(2), cycles)
             }
-            Instruction::RRA => {
+            Instruction::Rra => {
                 self.registers.a = self.rotate_right_through_carry_retain_zero(self.registers.a);
                 (self.pc.wrapping_add(1), 4)
             }
-            Instruction::RRC(register) => {
+            Instruction::Rrc(register) => {
                 match register {
                     PrefixTarget::A => {
                         self.registers.a = self.rotate_right_set_zero(self.registers.a)
@@ -821,15 +821,15 @@ impl CPU {
                 };
                 (self.pc.wrapping_add(2), cycles)
             }
-            Instruction::RRCA => {
+            Instruction::Rrca => {
                 self.registers.a = self.rotate_right_retain_zero(self.registers.a);
                 (self.pc.wrapping_add(1), 4)
             }
-            Instruction::RST(location) => {
+            Instruction::Rst(location) => {
                 self.rst();
                 (location.to_hex(), 16)
             }
-            Instruction::SBC(target) => {
+            Instruction::Sbc(target) => {
                 match target {
                     ArithmeticTarget::A => self.sbc(self.registers.a),
                     ArithmeticTarget::B => self.sbc(self.registers.b),
@@ -847,13 +847,13 @@ impl CPU {
                     _ => (self.pc.wrapping_add(1), 4),
                 }
             }
-            Instruction::SCF => {
+            Instruction::Scf => {
                 self.registers.f.n = false;
                 self.registers.f.h = false;
                 self.registers.f.c = true;
                 (self.pc.wrapping_add(1), 4)
             }
-            Instruction::SET(register, bit_position) => {
+            Instruction::Set(register, bit_position) => {
                 match register {
                     PrefixTarget::A => {
                         self.registers.a = self.set_bit(self.registers.a, bit_position)
@@ -889,7 +889,7 @@ impl CPU {
                 };
                 (self.pc.wrapping_add(2), cycles)
             }
-            Instruction::SLA(target) => {
+            Instruction::Sla(target) => {
                 match target {
                     PrefixTarget::A => self.registers.a = self.sla(self.registers.a),
                     PrefixTarget::B => self.registers.b = self.sla(self.registers.b),
@@ -911,7 +911,7 @@ impl CPU {
                 };
                 (self.pc.wrapping_add(2), cycles)
             }
-            Instruction::SRA(target) => {
+            Instruction::Sra(target) => {
                 match target {
                     PrefixTarget::A => self.registers.a = self.sra(self.registers.a),
                     PrefixTarget::B => self.registers.b = self.sra(self.registers.b),
@@ -933,7 +933,7 @@ impl CPU {
                 };
                 (self.pc.wrapping_add(2), cycles)
             }
-            Instruction::SRL(target) => {
+            Instruction::Srl(target) => {
                 match target {
                     PrefixTarget::A => self.registers.a = self.srl(self.registers.a),
                     PrefixTarget::B => self.registers.b = self.srl(self.registers.b),
@@ -955,7 +955,7 @@ impl CPU {
                 };
                 (self.pc.wrapping_add(2), cycles)
             }
-            Instruction::SUB(target) => {
+            Instruction::Sub(target) => {
                 match target {
                     ArithmeticTarget::A => self.sub(self.registers.a),
                     ArithmeticTarget::B => self.sub(self.registers.b),
@@ -973,7 +973,7 @@ impl CPU {
                     _ => (self.pc.wrapping_add(1), 4),
                 }
             }
-            Instruction::SWAP(register) => {
+            Instruction::Swap(register) => {
                 match register {
                     PrefixTarget::A => self.registers.a = self.swap(self.registers.a),
                     PrefixTarget::B => self.registers.b = self.swap(self.registers.b),
@@ -995,7 +995,7 @@ impl CPU {
                 };
                 (self.pc.wrapping_add(2), cycles)
             }
-            Instruction::XOR(target) => {
+            Instruction::Xor(target) => {
                 match target {
                     ArithmeticTarget::A => self.xor(self.registers.a),
                     ArithmeticTarget::B => self.xor(self.registers.b),
@@ -1100,7 +1100,7 @@ impl CPU {
         self.registers.f.n = false;
         self.registers.f.h = false;
         self.registers.f.c = false;
-        return new_value;
+        new_value
     }
 
     fn call(&mut self, condition: bool) -> (u16, u8) {
@@ -1126,12 +1126,11 @@ impl CPU {
         self.registers.f.z = result == 0;
         self.registers.f.n = true;
         self.registers.f.h = (value & 0xF) == 0;
-        return result;
+        result
     }
 
     fn dec_16bit(&mut self, value: u16) -> u16 {
-        let result = value.wrapping_sub(1);
-        return result;
+        value.wrapping_sub(1)
     }
 
     fn inc(&mut self, value: u8) -> u8 {
@@ -1143,8 +1142,7 @@ impl CPU {
     }
 
     fn inc_16bit(&mut self, value: u16) -> u16 {
-        let result = value.wrapping_add(1);
-        return result;
+        value.wrapping_add(1)
     }
 
     fn jump(&mut self, condition: bool) -> (u16, u8) {
@@ -1162,7 +1160,7 @@ impl CPU {
             let pc = if offset >= 0 {
                 next_byte.wrapping_add(offset as u16)
             } else {
-                next_byte.wrapping_sub(offset.abs() as u16)
+                next_byte.wrapping_sub(offset.unsigned_abs() as u16)
             };
             (pc, 12)
         } else {
@@ -1201,7 +1199,7 @@ impl CPU {
         self.registers.f.n = false;
         self.registers.f.h = false;
         self.registers.f.c = value & 0x80 != 0;
-        return new_value;
+        new_value
     }
 
     fn rotate_left_retain_zero(&mut self, value: u8) -> u8 {
@@ -1218,7 +1216,7 @@ impl CPU {
         self.registers.f.n = false;
         self.registers.f.h = false;
         self.registers.f.c = value & 0x80 != 0;
-        return new_value;
+        new_value
     }
 
     fn rotate_right_through_carry_retain_zero(&mut self, value: u8) -> u8 {
@@ -1236,7 +1234,7 @@ impl CPU {
         self.registers.f.n = false;
         self.registers.f.h = false;
         self.registers.f.c = value & 0b1 == 0b1;
-        return new_value;
+        new_value
     }
 
     fn rotate_right_retain_zero(&mut self, value: u8) -> u8 {
@@ -1253,7 +1251,7 @@ impl CPU {
         self.registers.f.n = false;
         self.registers.f.h = false;
         self.registers.f.c = value & 0b1 == 0b1;
-        return new_value;
+        new_value
     }
 
     fn rst(&mut self) {
@@ -1277,7 +1275,7 @@ impl CPU {
         self.registers.f.n = false;
         self.registers.f.h = false;
         self.registers.f.c = value & 0x80 != 0;
-        return new_value;
+        new_value
     }
 
     fn sra(&mut self, value: u8) -> u8 {
@@ -1287,7 +1285,7 @@ impl CPU {
         self.registers.f.n = false;
         self.registers.f.h = false;
         self.registers.f.c = value & 0x1 != 0;
-        return new_value;
+        new_value
     }
 
     fn srl(&mut self, value: u8) -> u8 {
@@ -1296,7 +1294,7 @@ impl CPU {
         self.registers.f.n = false;
         self.registers.f.h = false;
         self.registers.f.c = value & 0x1 != 0;
-        return new_value;
+        new_value
     }
 
     fn sub(&mut self, value: u8) {

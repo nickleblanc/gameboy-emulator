@@ -9,16 +9,14 @@ mod timer;
 use std::fs;
 use std::fs::OpenOptions;
 use std::io::BufWriter;
-
-use rfd::FileDialog;
-
-use cpu::CPU;
-use mmu::Memory;
-
 use std::thread::sleep;
 use std::{fs::File, time::Duration, time::Instant};
 
+use rfd::FileDialog;
+
+use cpu::Cpu;
 use joypad::Key;
+use mmu::Memory;
 
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
@@ -78,7 +76,7 @@ fn main() {
 
     let mmu = Memory::new(cartridge, boot_rom_contents.clone());
 
-    let mut cpu = cpu::CPU::new(mmu);
+    let mut cpu = Cpu::new(mmu);
 
     if boot_rom_contents.is_none() {
         match cgb_flag {
@@ -100,11 +98,7 @@ fn initialize_sdl2() -> (Window, sdl2::Sdl) {
 
     // Create a window
     let window = video_subsystem
-        .window(
-            "Gameboy Emulator",
-            WINDOW_WIDTH as u32,
-            WINDOW_HEIGHT as u32,
-        )
+        .window("Gameboy Emulator", WINDOW_WIDTH, WINDOW_HEIGHT)
         .position_centered()
         .build()
         .unwrap();
@@ -112,7 +106,7 @@ fn initialize_sdl2() -> (Window, sdl2::Sdl) {
     (window, sdl_context)
 }
 
-fn sdl2(cpu: &mut CPU, window: Window, sdl_context: sdl2::Sdl, log_file: &mut BufWriter<&File>) {
+fn sdl2(cpu: &mut Cpu, window: Window, sdl_context: sdl2::Sdl, log_file: &mut BufWriter<&File>) {
     // Initialize SDL2
 
     let mut canvas = window.into_canvas().build().unwrap();
@@ -123,8 +117,8 @@ fn sdl2(cpu: &mut CPU, window: Window, sdl_context: sdl2::Sdl, log_file: &mut Bu
         .create_texture(
             sdl2::pixels::PixelFormatEnum::RGBA32,
             sdl2::render::TextureAccess::Streaming,
-            SCREEN_WIDTH as u32,
-            SCREEN_HEIGHT as u32,
+            SCREEN_WIDTH,
+            SCREEN_HEIGHT,
         )
         .unwrap();
 
@@ -144,28 +138,29 @@ fn sdl2(cpu: &mut CPU, window: Window, sdl_context: sdl2::Sdl, log_file: &mut Bu
                     keycode: Some(keycode),
                     ..
                 } => match keycode {
-                    Keycode::Up => cpu.mem.joypad.push_button(Key::Up),
-                    Keycode::Down => cpu.mem.joypad.push_button(Key::Down),
-                    Keycode::Left => cpu.mem.joypad.push_button(Key::Left),
-                    Keycode::Right => cpu.mem.joypad.push_button(Key::Right),
-                    Keycode::Z => cpu.mem.joypad.push_button(Key::A),
-                    Keycode::X => cpu.mem.joypad.push_button(Key::B),
-                    Keycode::Return => cpu.mem.joypad.push_button(Key::Start),
-                    Keycode::RShift => cpu.mem.joypad.push_button(Key::Select),
+                    // Keycode::Up => cpu.mem.joypad.push_button(Key::Up),
+                    Keycode::Up => key_press(cpu, Key::Up),
+                    Keycode::Down => key_press(cpu, Key::Down),
+                    Keycode::Left => key_press(cpu, Key::Left),
+                    Keycode::Right => key_press(cpu, Key::Right),
+                    Keycode::Z => key_press(cpu, Key::A),
+                    Keycode::X => key_press(cpu, Key::B),
+                    Keycode::Return => key_press(cpu, Key::Start),
+                    Keycode::RShift => key_press(cpu, Key::Select),
                     _ => {}
                 },
                 Event::KeyUp {
                     keycode: Some(keycode),
                     ..
                 } => match keycode {
-                    Keycode::Up => cpu.mem.joypad.release_button(Key::Up),
-                    Keycode::Down => cpu.mem.joypad.release_button(Key::Down),
-                    Keycode::Left => cpu.mem.joypad.release_button(Key::Left),
-                    Keycode::Right => cpu.mem.joypad.release_button(Key::Right),
-                    Keycode::Z => cpu.mem.joypad.release_button(Key::A),
-                    Keycode::X => cpu.mem.joypad.release_button(Key::B),
-                    Keycode::Return => cpu.mem.joypad.release_button(Key::Start),
-                    Keycode::RShift => cpu.mem.joypad.release_button(Key::Select),
+                    Keycode::Up => key_release(cpu, Key::Up),
+                    Keycode::Down => key_release(cpu, Key::Down),
+                    Keycode::Left => key_release(cpu, Key::Left),
+                    Keycode::Right => key_release(cpu, Key::Right),
+                    Keycode::Z => key_release(cpu, Key::A),
+                    Keycode::X => key_release(cpu, Key::B),
+                    Keycode::Return => key_release(cpu, Key::Start),
+                    Keycode::RShift => key_release(cpu, Key::Select),
                     _ => {}
                 },
                 _ => {}
@@ -173,8 +168,8 @@ fn sdl2(cpu: &mut CPU, window: Window, sdl_context: sdl2::Sdl, log_file: &mut Bu
         }
         let time_delta = now.elapsed().subsec_nanos();
         now = Instant::now();
-        let delta = time_delta as f64 / 1_000_000_000 as f64;
-        let cycles_to_run = delta * 4190000 as f64;
+        let delta = time_delta as f64 / 1_000_000_000_f64;
+        let cycles_to_run = delta * 4190000_f64;
         // let cycles_to_run = delta * 8000000 as f64;
         let mut cycles_elapsed = 0;
         while cycles_elapsed <= cycles_to_run as usize {
@@ -197,7 +192,7 @@ fn sdl2(cpu: &mut CPU, window: Window, sdl_context: sdl2::Sdl, log_file: &mut Bu
                 .copy(
                     &texture,
                     None,
-                    Some(Rect::new(0, 0, WINDOW_WIDTH as u32, WINDOW_HEIGHT as u32)),
+                    Some(Rect::new(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT)),
                 )
                 .unwrap();
             canvas.present();
@@ -206,4 +201,12 @@ fn sdl2(cpu: &mut CPU, window: Window, sdl_context: sdl2::Sdl, log_file: &mut Bu
             sleep(Duration::from_nanos(2));
         }
     }
+}
+
+fn key_press(cpu: &mut Cpu, key: Key) {
+    cpu.mem.joypad.push_button(key);
+}
+
+fn key_release(cpu: &mut Cpu, key: Key) {
+    cpu.mem.joypad.release_button(key);
 }

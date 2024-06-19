@@ -31,7 +31,7 @@ pub fn new_cartridge(path: &Path) -> Box<dyn Cartridge> {
     }
 }
 
-pub fn get_ram_size(rom: &Vec<u8>) -> Option<usize> {
+pub fn get_ram_size(rom: &[u8]) -> Option<usize> {
     println!("RAM size: {:#04x}", rom[0x149]);
     match rom[0x149] {
         0x01 => Some(2 * 1024),

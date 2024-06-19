@@ -23,16 +23,10 @@ impl MBC3 {
     pub fn new(rom: Vec<u8>, path: &Path) -> MBC3 {
         let cartridge_type = rom[0x147];
         let cgb_flag = rom[0x143];
-        let has_ram = match cartridge_type {
-            0x10 | 0x12 | 0x13 => true,
-            _ => false,
-        };
+        let has_ram = matches!(cartridge_type, 0x10 | 0x12 | 0x13);
         let ram_size = get_ram_size(&rom);
         let ram = if has_ram {
-            match ram_size {
-                Some(size) => Some(Save::new(path, size)),
-                None => None,
-            }
+            ram_size.map(|size| Save::new(path, size))
         } else {
             None
         };

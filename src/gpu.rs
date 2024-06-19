@@ -1,5 +1,3 @@
-use std;
-
 mod lcdc;
 pub mod stat;
 
@@ -129,39 +127,11 @@ impl Default for BackgroundPriority {
     }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, Default, PartialEq)]
 enum ObjectPalette {
+    #[default]
     Zero,
     One,
-}
-
-impl Default for ObjectPalette {
-    fn default() -> Self {
-        ObjectPalette::Zero
-    }
-}
-
-#[derive(Eq, PartialEq)]
-pub enum InterruptRequest {
-    None,
-    VBlank,
-    LCDStat,
-    Both,
-}
-
-impl InterruptRequest {
-    fn add(&mut self, other: InterruptRequest) {
-        match self {
-            InterruptRequest::None => *self = other,
-            InterruptRequest::VBlank if other == InterruptRequest::LCDStat => {
-                *self = InterruptRequest::Both
-            }
-            InterruptRequest::LCDStat if other == InterruptRequest::VBlank => {
-                *self = InterruptRequest::Both
-            }
-            _ => {}
-        };
-    }
 }
 
 pub enum Interrupt {
@@ -177,8 +147,8 @@ enum PriorityFlag {
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum GameBoyMode {
-    DMG,
-    CGB,
+    Dmg,
+    Cgb,
 }
 
 #[cfg_attr(feature = "serialize", derive(Serialize))]
@@ -186,7 +156,7 @@ pub enum GameBoyMode {
 const SCREEN_WIDTH: usize = 160;
 const SCREEN_HEIGHT: usize = 144;
 #[cfg_attr(feature = "serialize", derive(Serialize))]
-pub struct GPU {
+pub struct Gpu {
     #[cfg_attr(feature = "serialize", serde(skip_serializing))]
     pub canvas_buffer: [u8; SCREEN_WIDTH * SCREEN_HEIGHT * 4],
     #[cfg_attr(feature = "serialize", serde(skip_serializing))]
@@ -230,9 +200,9 @@ pub struct GPU {
     pub interrupts_fired: u8,
 }
 
-impl GPU {
-    pub fn new(gb_mode: GameBoyMode, boot_rom: bool) -> GPU {
-        GPU {
+impl Gpu {
+    pub fn new(gb_mode: GameBoyMode, boot_rom: bool) -> Gpu {
+        Gpu {
             canvas_buffer: [0; SCREEN_WIDTH * SCREEN_HEIGHT * 4],
             object_data: [Default::default(); NUMBER_OF_OBJECTS],
             vram: [0; VRAM_SIZE],
@@ -340,13 +310,13 @@ impl GPU {
         let palette = &mut self.palettes_bg[palette_number as usize];
 
         let palette_offset = (palette_number * 8) as usize;
-        let color_offset = (color_index * 2) as usize;
+        let color_offset = color_index * 2;
 
         let color = rgb555_to_rgb888(
             self.bg_palette[palette_offset + color_offset],
             self.bg_palette[palette_offset + color_offset + 1],
         );
-        palette[color_index as usize] = color;
+        palette[color_index] = color;
 
         if self.auto_increment_bg {
             self.bgpi = (self.bgpi + 1) & 0x3F;
@@ -361,14 +331,14 @@ impl GPU {
         let palette = &mut self.palettes_object[palette_number];
         let color_index = (self.obpi as usize % 8) / 2;
 
-        let palette_offset = (palette_number * 8) as usize;
-        let color_offset = (color_index * 2) as usize;
+        let palette_offset = palette_number * 8;
+        let color_offset = color_index * 2;
 
         let color = rgb555_to_rgb888(
             self.object_palette[palette_offset + color_offset],
             self.object_palette[palette_offset + color_offset + 1],
         );
-        palette[color_index as usize] = color;
+        palette[color_index] = color;
 
         if self.auto_increment_object {
             self.obpi = (self.obpi + 1) & 0x3F;
@@ -376,7 +346,6 @@ impl GPU {
     }
 
     pub fn step(&mut self, cycles: u8) {
-        let mut request = InterruptRequest::None;
         if !self.lcdc.display_enabled {
             return;
         }
@@ -385,14 +354,14 @@ impl GPU {
         match self.stat.mode {
             Mode::HorizontalBlank => {
                 if self.cycles >= 204 {
-                    self.cycles = self.cycles % 204;
+                    self.cycles %= 204;
 
                     if self.line >= 143 {
                         self.set_mode(Mode::VerticalBlank);
                         self.fire_interrupt(Interrupt::VBlank);
                         self.bg_priority_map = [Default::default(); 65536];
                     } else {
-                        self.set_current_line(self.line + 1, &mut request);
+                        self.set_current_line(self.line + 1);
                         self.set_mode(Mode::OAMAccess)
                     }
                     // self.set_equal_lines_check(&mut request);
@@ -400,25 +369,25 @@ impl GPU {
             }
             Mode::VerticalBlank => {
                 if self.cycles >= 456 {
-                    self.cycles = self.cycles % 456;
-                    self.set_current_line(self.line + 1, &mut request);
+                    self.cycles %= 456;
+                    self.set_current_line(self.line + 1);
                     if self.line > 153 {
                         self.wly = 0;
                         self.set_mode(Mode::OAMAccess);
-                        self.set_current_line(0, &mut request);
+                        self.set_current_line(0);
                     }
                     // self.set_equal_lines_check(&mut request);
                 }
             }
             Mode::OAMAccess => {
                 if self.cycles >= 80 {
-                    self.cycles = self.cycles % 80;
+                    self.cycles %= 80;
                     self.set_mode(Mode::VRAMAccess);
                 }
             }
             Mode::VRAMAccess => {
                 if self.cycles >= 172 {
-                    self.cycles = self.cycles % 172;
+                    self.cycles %= 172;
                     self.set_mode(Mode::HorizontalBlank);
                     self.render_line()
                 }
@@ -456,24 +425,23 @@ impl GPU {
         }
     }
 
-    fn set_current_line(&mut self, value: u8, request: &mut InterruptRequest) {
+    fn set_current_line(&mut self, value: u8) {
         self.line = value;
-        self.set_equal_lines_check(request);
+        self.set_equal_lines_check();
     }
 
-    fn set_equal_lines_check(&mut self, request: &mut InterruptRequest) {
+    fn set_equal_lines_check(&mut self) {
         self.stat.coincidence_flag = false;
         if self.line == self.line_check {
             self.stat.coincidence_flag = true;
             if self.stat.coincidence_interrupt {
-                // request.add(InterruptRequest::LCDStat);
                 self.fire_interrupt(Interrupt::LCDStat);
             }
         }
     }
 
     fn render_line(&mut self) {
-        if self.gb_mode == GameBoyMode::DMG {
+        if self.gb_mode == GameBoyMode::Dmg {
             self.render_scan_line();
         } else {
             self.render_scan_line_cgb();
@@ -512,7 +480,7 @@ impl GPU {
             let tile_number = self.vram[(tile_address - VRAM_BEGIN as u16) as usize];
             let tile = self.calculate_tile_address(tile_number) - VRAM_BEGIN as u16;
 
-            let pixel_index = 7 - (tile_x_index % 8) as u8;
+            let pixel_index = 7 - (tile_x_index % 8);
 
             let y_address_offset = (tile_y_index % 8 * 2) as u16;
 
@@ -632,7 +600,7 @@ impl GPU {
                 };
 
                 let palette_index =
-                    (self.palettes[object.palette as usize + 1] >> color_index * 2) & 0x03;
+                    (self.palettes[object.palette as usize + 1] >> (color_index * 2)) & 0x03;
 
                 if color_index != 0 {
                     let offset = self.line as usize + 256 * x_offset as usize;
@@ -668,7 +636,7 @@ impl GPU {
             let tile_number = self.vram[(tile_address - VRAM_BEGIN as u16) as usize];
             let tile = self.calculate_tile_address(tile_number) - VRAM_BEGIN as u16;
 
-            let pixel_index = 7 - (tile_x_index % 8) as u8;
+            let pixel_index = 7 - (tile_x_index % 8);
 
             let y_address_offset = (tile_y_index % 8 * 2) as u16;
 
@@ -886,31 +854,27 @@ impl GPU {
                 });
             }
         }
-        if self.gb_mode == GameBoyMode::DMG {
+        if self.gb_mode == GameBoyMode::Dmg {
             objects.sort_by_key(|object| object.x);
         }
         objects
     }
 
     fn background_has_priority(&self, priority: bool, offset: usize) -> bool {
-        if self.gb_mode == GameBoyMode::DMG {
+        if self.gb_mode == GameBoyMode::Dmg {
             if priority && self.bg_priority_map[offset].color == PriorityFlag::Color0 {
                 return false;
-            } else if priority {
-                return true;
             } else {
-                return false;
+                return priority;
             }
         }
 
         if self.bg_priority_map[offset].color == PriorityFlag::Color0 {
-            return false;
+            false
         } else if !self.lcdc.bg_window_enabled {
             return false;
-        } else if !priority && !self.bg_priority_map[offset].priority {
-            return false;
         } else {
-            return true;
+            !(!priority && !self.bg_priority_map[offset].priority)
         }
     }
 
@@ -945,9 +909,9 @@ impl GPU {
     fn draw_pixel_to_buffer(&mut self, x: usize, y: usize, pixel: Pixel) {
         let canvas_buffer_offset = (x * 4) + (y * SCREEN_WIDTH * 4);
 
-        self.canvas_buffer[canvas_buffer_offset] = pixel.r as u8;
-        self.canvas_buffer[canvas_buffer_offset + 1] = pixel.g as u8;
-        self.canvas_buffer[canvas_buffer_offset + 2] = pixel.b as u8;
+        self.canvas_buffer[canvas_buffer_offset] = pixel.r;
+        self.canvas_buffer[canvas_buffer_offset + 1] = pixel.g;
+        self.canvas_buffer[canvas_buffer_offset + 2] = pixel.b;
         self.canvas_buffer[canvas_buffer_offset + 3] = 255;
     }
 }
