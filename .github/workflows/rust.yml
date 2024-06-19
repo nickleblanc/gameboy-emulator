@@ -42,16 +42,17 @@ jobs:
           targets: ${{ matrix.target }}
 
       - name: install_dependencies
-        run: | 
+        run: |
           brew install SDL2
           brew install rustup
-          rustup-init -y --default-toolchain stable   
+          rustup-init -y --default-toolchain stable
       - name: Build
-        uses: actions-rs/cargo@v1
-        with:
-          use-cross: true
-          command: build
-          args: --verbose --release --target ${{ matrix.target }}
+        # uses: actions-rs/cargo@v1
+        # with:
+        #   use-cross: true
+        #   command: build
+        #   args: --verbose --release --target ${{ matrix.target }}
+        run: cargo build --release --target ${{ matrix.target }}
 
       - name: Build archive
         shell: bash
