@@ -164,6 +164,11 @@ impl InterruptRequest {
     }
 }
 
+pub enum Interrupt {
+    VBlank = 0x01,
+    LCDStat = 0x02,
+}
+
 #[derive(Copy, Clone, Debug, PartialEq)]
 enum PriorityFlag {
     None,
@@ -222,6 +227,7 @@ pub struct GPU {
     pub speed: u8,
     pub gb_mode: GameBoyMode,
     boot_rom: bool,
+    pub interrupts_fired: u8,
 }
 
 impl GPU {
@@ -263,6 +269,7 @@ impl GPU {
             speed: 0x00,
             gb_mode,
             boot_rom,
+            interrupts_fired: 0,
         }
     }
 
@@ -368,10 +375,10 @@ impl GPU {
         }
     }
 
-    pub fn step(&mut self, cycles: u8) -> InterruptRequest {
+    pub fn step(&mut self, cycles: u8) {
         let mut request = InterruptRequest::None;
         if !self.lcdc.display_enabled {
-            return request;
+            return;
         }
         self.cycles += cycles as u16;
 
@@ -379,65 +386,90 @@ impl GPU {
             Mode::HorizontalBlank => {
                 if self.cycles >= 204 {
                     self.cycles = self.cycles % 204;
-                    self.line += 1;
 
-                    if self.line >= 144 {
-                        self.stat.mode = Mode::VerticalBlank;
-                        if self.stat.v_blank_interrupt {
-                            request.add(InterruptRequest::LCDStat)
-                        }
-                        request.add(InterruptRequest::VBlank);
+                    if self.line >= 143 {
+                        self.set_mode(Mode::VerticalBlank);
+                        self.fire_interrupt(Interrupt::VBlank);
                         self.bg_priority_map = [Default::default(); 65536];
                     } else {
-                        self.stat.mode = Mode::OAMAccess;
-                        if self.stat.oam_interrupt {
-                            request.add(InterruptRequest::LCDStat)
-                        }
+                        self.set_current_line(self.line + 1, &mut request);
+                        self.set_mode(Mode::OAMAccess)
                     }
-                    self.set_equal_lines_check(&mut request);
+                    // self.set_equal_lines_check(&mut request);
                 }
             }
             Mode::VerticalBlank => {
                 if self.cycles >= 456 {
                     self.cycles = self.cycles % 456;
-                    self.line += 1;
-                    if self.line == 154 {
-                        self.stat.mode = Mode::OAMAccess;
-                        self.line = 0;
+                    self.set_current_line(self.line + 1, &mut request);
+                    if self.line > 153 {
                         self.wly = 0;
-                        if self.stat.oam_interrupt {
-                            request.add(InterruptRequest::LCDStat)
-                        }
+                        self.set_mode(Mode::OAMAccess);
+                        self.set_current_line(0, &mut request);
                     }
-                    self.set_equal_lines_check(&mut request);
+                    // self.set_equal_lines_check(&mut request);
                 }
             }
             Mode::OAMAccess => {
                 if self.cycles >= 80 {
                     self.cycles = self.cycles % 80;
-                    self.stat.mode = Mode::VRAMAccess;
+                    self.set_mode(Mode::VRAMAccess);
                 }
             }
             Mode::VRAMAccess => {
                 if self.cycles >= 172 {
                     self.cycles = self.cycles % 172;
-                    if self.stat.h_blank_interrupt {
-                        request.add(InterruptRequest::LCDStat)
-                    }
-                    self.stat.mode = Mode::HorizontalBlank;
+                    self.set_mode(Mode::HorizontalBlank);
                     self.render_line()
                 }
             }
         }
-        request
+    }
+
+    fn fire_interrupt(&mut self, interrupt: Interrupt) {
+        self.interrupts_fired |= interrupt as u8;
+    }
+
+    fn set_mode(&mut self, mode: Mode) {
+        self.stat.mode = mode;
+        self.fire_stat_interrupt();
+    }
+
+    fn fire_stat_interrupt(&mut self) {
+        match self.stat.mode {
+            Mode::OAMAccess => {
+                if self.stat.oam_interrupt {
+                    self.fire_interrupt(Interrupt::LCDStat);
+                }
+            }
+            Mode::VerticalBlank => {
+                if self.stat.v_blank_interrupt {
+                    self.fire_interrupt(Interrupt::LCDStat);
+                }
+            }
+            Mode::HorizontalBlank => {
+                if self.stat.h_blank_interrupt {
+                    self.fire_interrupt(Interrupt::LCDStat);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn set_current_line(&mut self, value: u8, request: &mut InterruptRequest) {
+        self.line = value;
+        self.set_equal_lines_check(request);
     }
 
     fn set_equal_lines_check(&mut self, request: &mut InterruptRequest) {
-        let line_equals_line_check = self.line == self.line_check;
-        if line_equals_line_check && self.stat.coincidence_interrupt {
-            request.add(InterruptRequest::LCDStat);
+        self.stat.coincidence_flag = false;
+        if self.line == self.line_check {
+            self.stat.coincidence_flag = true;
+            if self.stat.coincidence_interrupt {
+                // request.add(InterruptRequest::LCDStat);
+                self.fire_interrupt(Interrupt::LCDStat);
+            }
         }
-        self.stat.coincidence_flag = line_equals_line_check;
     }
 
     fn render_line(&mut self) {

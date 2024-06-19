@@ -129,29 +129,36 @@ impl Memory {
     }
 
     pub fn step(&mut self, cycles: u8) {
-        // if self.dma_mode == DmaMode::HDMA {
-        //     // self.hdma_step();
-        //     panic!("HDMA not implemented");
-        // } else {
-        //     self.gdma_step();
-        // }
+        if self.dma_mode == DmaMode::HDMA {
+            self.hdma_step();
+            // panic!("HDMA not implemented");
+        } else {
+            self.gdma_step();
+        }
         // self.gdma_step();
         if self.timer.step(cycles) {
             self.interrupt_flags.timer = true;
         }
         self.divider.step(cycles);
-        let (vblank, lcd) = match self.gpu.step(cycles) {
-            InterruptRequest::None => (false, false),
-            InterruptRequest::VBlank => (true, false),
-            InterruptRequest::LCDStat => (false, true),
-            InterruptRequest::Both => (true, true),
-        };
+        // let (vblank, lcd) = match self.gpu.step(cycles) {
+        //     InterruptRequest::None => (false, false),
+        //     InterruptRequest::VBlank => (true, false),
+        //     InterruptRequest::LCDStat => (false, true),
+        //     InterruptRequest::Both => (true, true),
+        // };
+
+        self.gpu.step(cycles);
+
+        let vblank = self.gpu.interrupts_fired & 0x01 != 0;
+        let lcd_stat = self.gpu.interrupts_fired & 0x02 != 0;
+
+        self.gpu.interrupts_fired = 0;
 
         if vblank {
             self.interrupt_flags.vblank = true;
         }
 
-        if lcd {
+        if lcd_stat {
             self.interrupt_flags.lcd_stat = true;
         }
     }
@@ -160,48 +167,48 @@ impl Memory {
     HDMA not fully implemented
      */
 
-    // pub fn gdma_step(&mut self) {
-    //     if self.dma_length == 0 {
-    //         return;
-    //     }
-    //     println!("DMA Step: {:#04x}", self.dma_length);
+    pub fn gdma_step(&mut self) {
+        if self.dma_length == 0 {
+            return;
+        }
+        // println!("DMA Step: {:#04x}", self.dma_length);
 
-    //     let source = self.dma_source;
-    //     let destination = self.dma_destination;
+        let source = self.dma_source;
+        let destination = self.dma_destination;
 
-    //     for i in 0..(self.dma_length * 16) {
-    //         let byte = self.read_byte(source + i as u16);
-    //         // println!(
-    //         //     "DMA: {:#06x} -> {:#06x} = {:#04x}",
-    //         //     source + i as u16,
-    //         //     destination,
-    //         //     byte
-    //         // );
-    //         // println!(
-    //         //     "Destination: {:#06x}",
-    //         //     0x8000 | ((destination & 0x1FFF) + i as u16) as u16
-    //         // );
-    //         self.write_byte(0x8000 | (destination & 0x1FFF) + i as u16, byte);
-    //     }
+        for i in 0..(self.dma_length * 16) {
+            let byte = self.read_byte(source + i as u16);
+            // println!(
+            //     "DMA: {:#06x} -> {:#06x} = {:#04x}",
+            //     source + i as u16,
+            //     destination,
+            //     byte
+            // );
+            // println!(
+            //     "Destination: {:#06x}",
+            //     0x8000 | ((destination & 0x1FFF) + i as u16) as u16
+            // );
+            self.write_byte(0x8000 | (destination & 0x1FFF) + i as u16, byte);
+        }
 
-    //     self.dma_length = 0;
-    // }
+        self.dma_length = 0;
+    }
 
-    // pub fn hdma_step(&mut self) {
-    //     println!("HDMA Step");
-    //     if self.dma_length == 0 {
-    //         return;
-    //     }
+    pub fn hdma_step(&mut self) {
+        // println!("HDMA Step");
+        if self.dma_length == 0 {
+            return;
+        }
 
-    //     let source = self.dma_source;
-    //     let destination = self.dma_destination;
+        let source = self.dma_source;
+        let destination = self.dma_destination;
 
-    //     for i in 0..16 {
-    //         let byte = self.read_byte(source + i as u16);
-    //         self.write_byte(0x8000 | (destination & 0x1FFF) + i as u16, byte);
-    //     }
-    //     self.dma_length -= 1;
-    // }
+        for i in 0..(self.dma_length * 16) {
+            let byte = self.read_byte(source + i as u16);
+            self.write_byte(0x8000 | (destination & 0x1FFF) + i as u16, byte);
+        }
+        self.dma_length = 0;
+    }
 
     pub fn interrupt_called(&mut self) -> bool {
         (self.interrupt_enable.joypad && self.interrupt_flags.joypad)
@@ -282,6 +289,7 @@ impl Memory {
                 self.hram[address - HIGH_RAM_BEGIN] = value;
             }
             INTERRUPT_ENABLE => {
+                println!("Interrupt Enable: {:#04x}", value);
                 self.interrupt_enable.from_byte(value);
             }
             _ => {
@@ -315,7 +323,10 @@ impl Memory {
                 0
             }
             0xFF40 => self.gpu.lcdc.to_byte(),
-            LCD_STAT => self.gpu.stat.to_byte(),
+            LCD_STAT => {
+                // println!("LCD Stat Read: {:#04x}", self.gpu.stat.to_byte());
+                self.gpu.stat.to_byte()
+            }
             0xFF42 => self.gpu.scroll_y,
             0xFF43 => self.gpu.scroll_x,
             0xFF44 => self.gpu.line,
@@ -342,7 +353,7 @@ impl Memory {
                 return self.gpu.vram_bank | 0xFE;
             }
             0xFF55 => {
-                println!("DMA Length: {:#04x}", self.dma_length);
+                // println!("DMA Length: {:#04x}", self.dma_length);
                 self.dma_length as u8
             }
             0xFF68 => {
@@ -366,7 +377,11 @@ impl Memory {
                     }
             }
             0xFF6B => {
-                println!("OBPD: {:#04x}", self.gpu.obpi);
+                println!("OBPI: {:#04x}", self.gpu.obpi);
+                println!(
+                    "Palette: {:#04x}",
+                    self.gpu.object_palette[self.gpu.obpi as usize]
+                );
                 self.gpu.object_palette[self.gpu.obpi as usize]
             }
             0xFF70 => self.wram_bank,
@@ -403,7 +418,9 @@ impl Memory {
                     _ => Frequency::F16384,
                 };
             }
+            0xFF08..=0xFF0E => {}
             INTERRUPT_FLAG => {
+                // println!("Interrupt Flag: {:#04x}", value);
                 self.interrupt_flags.from_byte(value);
             }
             0xFF10..=0xFF3F => {
@@ -411,6 +428,7 @@ impl Memory {
             }
             0xFF40 => {
                 self.gpu.lcdc.from_byte(value);
+                println!("LCDC: {:#04x}", value);
                 if value & 0x80 == 0 {
                     self.gpu.stat.mode = Mode::HorizontalBlank;
                     // self.gpu.stat.reset();
@@ -420,6 +438,7 @@ impl Memory {
                 }
             }
             LCD_STAT => {
+                // println!("LCD Stat: {:#04x}", value);
                 self.gpu.stat.from_byte(value);
             }
             0xFF42 => {
@@ -503,7 +522,11 @@ impl Memory {
                 self.dma_length = (value & 0x7F) as u16;
                 // println!("HDMA5: {:#04x}", value)
             }
+            0xFF5B => {}
+            0xFF5F => {}
             0xFF56 => {}
+            0xFF60 => {}
+            0xFF64 => {}
             0xFF68 => {
                 self.gpu.bgpi = value & 0x3f;
                 self.gpu.auto_increment_bg = value & 0x80 != 0;
@@ -530,6 +553,7 @@ impl Memory {
                 }
                 // println!("WRAM Bank: {:#04x}", value);
             }
+            0xFF74 => {}
             _ => {
                 // panic!("IO register not implemented: {:#06x}", address);
             }
