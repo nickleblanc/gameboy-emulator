@@ -52,8 +52,7 @@ jobs:
           Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser 
           Invoke-RestMethod -Uri https://get.scoop.sh | Invoke-Expression
           scoop install rustup
-          rustup-init -y --default-toolchain stable
-          rustup target add x86_64-pc-windows-gnu
+          rustup target add x86_64-pc-windows-msvc
       - name: install_dependencies_macos
         if: matrix.os == 'macos-latest'
         run: |
