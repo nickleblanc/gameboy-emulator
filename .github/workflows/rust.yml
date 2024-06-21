@@ -47,19 +47,17 @@ jobs:
 
       - name: install_dependencies_windows
         shell: pwsh
+        if: matrix.os == 'windows-latest'
         run: |
-          if [ "${{ matrix.os}}" = "windows-latest" ]; then
-            Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser Invoke-RestMethod -Uri https://get.scoop.sh | Invoke-Expression
-            scoop install rustup
-            rustup-init -y --default-toolchain stable
-          fi
+          Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser Invoke-RestMethod -Uri https://get.scoop.sh | Invoke-Expression
+          scoop install rustup
+          rustup-init -y --default-toolchain stable
       - name: install_dependencies_macos
+        if: matrix.os == 'macos-latest'
         run: |
-          if [ "${{ matrix.os}}" = "macos-latest" ]; then
-            brew install sdl2
-            brew install rustup
-            rustup-init -y --default-toolchain stable
-          fi
+          brew install sdl2
+          brew install rustup
+          rustup-init -y --default-toolchain stable
       - name: Build
         # uses: actions-rs/cargo@v1
         # with:
