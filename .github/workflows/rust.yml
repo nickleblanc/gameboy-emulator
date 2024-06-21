@@ -17,9 +17,9 @@ jobs:
       matrix:
         # You can add more, for any target you'd like!
         include:
-          - build: linux
-            os: ubuntu-latest
-            target: x86_64-unknown-linux-musl
+          # - build: linux
+          #   os: ubuntu-latest
+          #   target: x86_64-unknown-linux-musl
 
           - build: macos
             os: macos-latest
@@ -54,7 +54,7 @@ jobs:
       #     scoop install rustup
       #     rustup target add x86_64-pc-windows-msvc
       # - name: install_dependencies_macos
-      #   if: matrix.os == 'macos-latest'
+      # if: matrix.os == 'macos-latest'
       #   run: |
       #     brew install sdl2
       #     rustup-init -y --default-toolchain stable
