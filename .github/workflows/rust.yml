@@ -45,20 +45,20 @@ jobs:
           # Make Rust compile to our target (defined in the matrix)
           targets: ${{ matrix.target }}
 
-      - name: install_dependencies_windows
-        shell: pwsh
-        if: matrix.os == 'windows-latest'
-        run: |
-          Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser 
-          Invoke-RestMethod -Uri https://get.scoop.sh | Invoke-Expression
-          scoop install rustup
-          rustup target add x86_64-pc-windows-msvc
-      - name: install_dependencies_macos
-        if: matrix.os == 'macos-latest'
-        run: |
-          brew install sdl2
-          rustup-init -y --default-toolchain stable
-          rustup target add x86_64-apple-darwin
+      # - name: install_dependencies_windows
+      #   shell: pwsh
+      #   if: matrix.os == 'windows-latest'
+      #   run: |
+      #     Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+      #     Invoke-RestMethod -Uri https://get.scoop.sh | Invoke-Expression
+      #     scoop install rustup
+      #     rustup target add x86_64-pc-windows-msvc
+      # - name: install_dependencies_macos
+      #   if: matrix.os == 'macos-latest'
+      #   run: |
+      #     brew install sdl2
+      #     rustup-init -y --default-toolchain stable
+      #     rustup target add x86_64-apple-darwin
       - name: Build
         run: cargo build --release --target ${{ matrix.target }}
 
