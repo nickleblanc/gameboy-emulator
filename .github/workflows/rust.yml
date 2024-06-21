@@ -51,14 +51,16 @@ jobs:
         run: |
           Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser 
           Invoke-RestMethod -Uri https://get.scoop.sh | Invoke-Expression
-          scoop install rustup-gnu
+          scoop install rustup
           rustup-init -y --default-toolchain stable
+          rustup target add x86_64-pc-windows-gnu
       - name: install_dependencies_macos
         if: matrix.os == 'macos-latest'
         run: |
           brew install sdl2
           brew install rustup
           rustup-init -y --default-toolchain stable
+          rustup target add x86_64-apple-darwin
       - name: Build
         # uses: actions-rs/cargo@v1
         # with:
