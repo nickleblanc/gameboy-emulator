@@ -47,8 +47,15 @@ jobs:
 
       - name: install_dependencies
         run: |
-          brew install SDL2
-          brew install rustup
+          if [ "${{ matrix.os }}" = "macos-latest" ]; then
+            brew install SDL2
+            brew install rustup
+          fi
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then
+            choco install -y mingw
+            choco install -y 7zip
+            choco install -y rust
+          fi
           rustup-init -y --default-toolchain stable
       - name: Build
         # uses: actions-rs/cargo@v1
