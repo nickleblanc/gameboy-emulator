@@ -37,13 +37,13 @@ jobs:
         shell: bash
         run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
 
-      - name: Install Rust
-        # Or @nightly if you want
-        uses: dtolnay/rust-toolchain@stable
-        # Arguments to pass in
-        with:
-          # Make Rust compile to our target (defined in the matrix)
-          targets: ${{ matrix.target }}
+      # - name: Install Rust
+      #   # Or @nightly if you want
+      #   uses: dtolnay/rust-toolchain@stable
+      #   # Arguments to pass in
+      #   with:
+      #     # Make Rust compile to our target (defined in the matrix)
+      #     targets: ${{ matrix.target }}
 
       - name: install_dependencies_windows
         shell: pwsh
@@ -51,7 +51,7 @@ jobs:
         run: |
           Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser 
           Invoke-RestMethod -Uri https://get.scoop.sh | Invoke-Expression
-          scoop install rustup
+          scoop install rustup-gnu
           rustup-init -y --default-toolchain stable
       - name: install_dependencies_macos
         if: matrix.os == 'macos-latest'
