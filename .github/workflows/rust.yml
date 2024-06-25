@@ -45,20 +45,6 @@ jobs:
           # Make Rust compile to our target (defined in the matrix)
           targets: ${{ matrix.target }}
 
-      # - name: install_dependencies_windows
-      #   shell: pwsh
-      #   if: matrix.os == 'windows-latest'
-      #   run: |
-      #     Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
-      #     Invoke-RestMethod -Uri https://get.scoop.sh | Invoke-Expression
-      #     scoop install rustup
-      #     rustup target add x86_64-pc-windows-msvc
-      # - name: install_dependencies_macos
-      # if: matrix.os == 'macos-latest'
-      #   run: |
-      #     brew install sdl2
-      #     rustup-init -y --default-toolchain stable
-      #     rustup target add x86_64-apple-darwin
       - name: Build
         run: cargo build --release --target ${{ matrix.target }}
 
@@ -70,17 +56,12 @@ jobs:
           dirname="$binary_name-${{ env.VERSION }}-${{ matrix.target }}"
           mkdir "$dirname"
           if [ "${{ matrix.os }}" = "windows-latest" ]; then
-            mv "target/${{ matrix.target }}/release/$binary_name.exe" "$dirname"
+            mv "target/${{ matrix.build }}/release/$binary_name.exe" "$dirname"
           else
-            mv "target/${{ matrix.target }}/release/$binary_name" "$dirname"
+            mv "target/${{ matrix.build }}/release/$binary_name" "$dirname"
           fi
-          if [ "${{ matrix.os }}" = "windows-latest" ]; then
-            7z a "$dirname.zip" "$dirname"
-            echo "ASSET=$dirname.zip" >> $GITHUB_ENV
-          else
-            tar -czf "$dirname.tar.gz" "$dirname"
-            echo "ASSET=$dirname.tar.gz" >> $GITHUB_ENV
-          fi
+          7z a "$dirname.zip" "$dirname"
+          echo "ASSET=$dirname.zip" >> $GITHUB_ENV
       - name: Release
         uses: softprops/action-gh-release@v1
         with:
