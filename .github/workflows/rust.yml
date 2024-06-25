@@ -53,7 +53,7 @@ jobs:
         run: |
           # Replace with the name of your binary
           binary_name="gameboy-emulator"
-          dirname="$binary_name-${{ env.VERSION }}-${{ matrix.target }}"
+          dirname="$binary_name-${{ env.VERSION }}-${{ matrix.build }}"
           mkdir "$dirname"
           if [ "${{ matrix.os }}" = "windows-latest" ]; then
             mv "target/${{ matrix.build }}/release/$binary_name.exe" "$dirname"
