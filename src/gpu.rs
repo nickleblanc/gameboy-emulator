@@ -11,7 +11,6 @@ const TILESET_SECOND_BEGIN_ADDRESS: u16 = 0x9000;
 
 const NUMBER_OF_OBJECTS: usize = 40;
 
-#[cfg_attr(feature = "serialize", derive(Serialize))]
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum Color {
     White = 255,
@@ -58,33 +57,6 @@ impl std::convert::From<u8> for Color {
     }
 }
 
-impl std::convert::From<Color> for u8 {
-    fn from(color: Color) -> Self {
-        match color {
-            Color::White => 0,
-            Color::LightGray => 1,
-            Color::DarkGray => 2,
-            Color::Black => 3,
-        }
-    }
-}
-
-#[cfg_attr(feature = "serialize", derive(Serialize))]
-#[derive(Copy, Clone, Debug, PartialEq)]
-pub struct BackgroundColors(Color, Color, Color, Color);
-
-impl std::convert::From<u8> for BackgroundColors {
-    fn from(value: u8) -> Self {
-        BackgroundColors(
-            (value & 0b11).into(),
-            ((value >> 2) & 0b11).into(),
-            ((value >> 4) & 0b11).into(),
-            (value >> 6).into(),
-        )
-    }
-}
-
-#[derive(Copy, Clone, Debug, PartialEq)]
 pub struct ObjectData {
     x: i16,
     y: i16,
@@ -112,6 +84,7 @@ impl Default for ObjectData {
         }
     }
 }
+
 #[derive(Copy, Clone, Debug, PartialEq)]
 struct BackgroundPriority {
     priority: bool,
@@ -151,22 +124,14 @@ pub enum GameBoyMode {
     Cgb,
 }
 
-#[cfg_attr(feature = "serialize", derive(Serialize))]
-
 const SCREEN_WIDTH: usize = 160;
 const SCREEN_HEIGHT: usize = 144;
-#[cfg_attr(feature = "serialize", derive(Serialize))]
+
 pub struct Gpu {
-    #[cfg_attr(feature = "serialize", serde(skip_serializing))]
     pub canvas_buffer: [u8; SCREEN_WIDTH * SCREEN_HEIGHT * 4],
-    #[cfg_attr(feature = "serialize", serde(skip_serializing))]
-    pub object_data: [ObjectData; NUMBER_OF_OBJECTS],
-    #[cfg_attr(feature = "serialize", serde(skip_serializing))]
     pub vram: [u8; VRAM_SIZE],
     pub vram1: [u8; VRAM_SIZE],
-    #[cfg_attr(feature = "serialize", serde(skip_serializing))]
     pub oam: [u8; OAM_SIZE],
-    pub background_colors: BackgroundColors,
     pub line_check: u8,
     pub line: u8,
     pub cycles: u16,
@@ -184,9 +149,7 @@ pub struct Gpu {
     bg_map_attributes0: [u8; 1024],
     bg_map_attributes1: [u8; 1024],
     pub bgpi: u8,
-    pub bgpd: u8,
     pub obpi: u8,
-    pub obpd: u8,
     pub bg_palette: [u8; 64],
     palettes_bg: [[Pixel; 4]; 8],
     pub object_palette: [u8; 64],
@@ -204,11 +167,9 @@ impl Gpu {
     pub fn new(gb_mode: GameBoyMode, boot_rom: bool) -> Gpu {
         Gpu {
             canvas_buffer: [0; SCREEN_WIDTH * SCREEN_HEIGHT * 4],
-            object_data: [Default::default(); NUMBER_OF_OBJECTS],
             vram: [0; VRAM_SIZE],
             vram1: [0; VRAM_SIZE],
             oam: [0; OAM_SIZE],
-            background_colors: BackgroundColors::from(0xFC),
             line_check: 0,
             line: 0,
             cycles: 0,
@@ -226,9 +187,7 @@ impl Gpu {
             bg_map_attributes0: [0; 1024],
             bg_map_attributes1: [0; 1024],
             bgpi: 0,
-            bgpd: 0,
             obpi: 0,
-            obpd: 0,
             bg_palette: [0x00; 64],
             palettes_bg: [[Default::default(); 4]; 8],
             object_palette: [0x00; 64],
@@ -824,7 +783,7 @@ impl Gpu {
     fn fetch_objects(&self) -> Vec<ObjectData> {
         let object_height = if self.lcdc.sprite_size { 16 } else { 8 };
         let mut objects: Vec<ObjectData> = vec![];
-        for object in 0..40 {
+        for object in 0..NUMBER_OF_OBJECTS {
             if objects.len() >= 10 {
                 break;
             }

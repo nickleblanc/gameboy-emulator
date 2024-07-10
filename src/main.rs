@@ -46,12 +46,16 @@ fn main() {
         .add_filter("Gameboy ROM", &["gb", "gbc"])
         .pick_file();
 
-    window.raise();
-
     let file_path = match file_path {
         Some(path) => path,
         None => panic!("No file selected"),
     };
+
+    if let Some(filename) = file_path.file_name().unwrap().to_str() {
+        _ = window.set_title(filename);
+    }
+
+    window.raise();
 
     let cartridge = cartridge::new_cartridge(&file_path);
 
